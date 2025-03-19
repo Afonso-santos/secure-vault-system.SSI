@@ -6,15 +6,13 @@ rm lisboa.txt porto.txt braga.txt
 rm -rf dir1 dir2
 
 # Secção 1
-
-echo "Secção 1:"
+echo -e "\e[34mSecção 1:\e[0m"
 
 # Exercício 1
 
 # (criar ficheiros)
 
-echo "Exercício 1:"
-
+echo -e "\e[1;32mExercício 1:\e[0m"
 echo "(a criar ficheiros com conteúdo)"
 
 echo "Lisboa" > lisboa.txt
@@ -23,29 +21,27 @@ echo "Braga" > braga.txt
 
 # Exercício 2
 
-echo "Exercício 2:"
+echo -e "\e[1;32mExercício 2:\e[0m"
 
 ls -l lisboa.txt
 
 # Exercício 3
-
-echo "Exercício 3:"
+echo -e "\e[1;32mExercício 3:\e[0m"
 
 chmod -v ugo+rw lisboa.txt
 
 # Exercício 4
 
-echo "Exercício 4:"
+echo -e "\e[1;32mExercício 4:\e[0m"
 chmod -v u=rx porto.txt
 
 # Exercício 5
-
-echo "Exercício 5:"
+echo -e "\e[1;32mExercício 5:\e[0m"
 chmod -v go-r braga.txt
 
 # Exercício 6
 
-echo "Exercício 6:"
+echo -e "\e[1;32mExercício 6:\e[0m"
 
 mkdir -v dir1
 mkdir -v dir2
@@ -53,6 +49,7 @@ mkdir -v dir2
 ls -ld dir1 dir2
 
 # Exercício 7
+echo -e "\e[1;32mExercício 7:\e[0m"
 
 chmod -v go-x dir2
 
@@ -67,7 +64,7 @@ sudo groupdel par-ssi
 
 # Secção 2
 
-echo "Secção 2:"
+echo -e "\e[34mSecção 2:\e[0m"
 
 # Exercício 0
 
@@ -77,8 +74,7 @@ echo "Secção 2:"
 
 # Exercício 1
 
-echo "Exercício 1:"
-
+echo -e "\e[1;32mExercício 1:\e[0m"
 echo "(a criar utilizadores)"
 
 sudo useradd -m -s /bin/bash afonso
@@ -87,8 +83,7 @@ sudo useradd -m -s /bin/bash ritac
 
 # Exercício 2
 
-echo "Exercício 2:"
-
+echo -e "\e[1;32mExercício 2:\e[0m"
 echo "(a criar grupo todo)"
 
 sudo groupadd grupo-ssi
@@ -122,21 +117,29 @@ getent group par-ssi
 
 # Exercício 4
 
-echo "Exercício 4:"
+echo -e "\e[1;32mExercício 4:\e[0m"
+echo "(a mudar o dono do ficheiro braga.txt para afonso)"
 
 sudo chown afonso braga.txt
 
 # Exercício 5
 
-echo "Exercício 5:"
+echo -e "\e[1;32mExercício 5:\e[0m"
 
 cat braga.txt
 
 # Exercício 6
+echo -e "\e[1;32mExercício 6:\e[0m"
 
 # sudo su afonso
 
+
 # Exercício 7
+echo -e "\e[1;32mExercício 7:\e[0m"
+echo "(a verificar os ids do utilizador afonso)"
+id
+echo "(a verificar os grupos do utilizador afonso)"
+groups
 
 # Ao rodar o comando id, obtemos o seguinte resultado:
 # uid=1001(afonso) gid=1002(afonso) groups=1002(afonso),1005(grupo-ssi),1006(par-ssi)
@@ -147,13 +150,13 @@ cat braga.txt
 # Ou seja, o utilizador afonso pertence aos grupos afonso, grupo-ssi e par-ssi.
 
 # Exercício 8
-
+echo -e "\e[1;32mExercício 8:\e[0m"
 echo "(a entrar como afonso e tentar ler braga.txt)"
 
 sudo -u afonso cat braga.txt
 
 # Exercício 9
-
+echo -e "\e[1;32mExercício 9:\e[0m"
 sudo -u afonso -s cd dir2
 
 # O comando não executa com sucesso, pois, ao tentar aceder ao diretório dir2, o utilizador afonso não tem permissões de execução.
@@ -165,15 +168,17 @@ rm reader
 
 # Secção 3
 
-echo "Secção 3:"
+echo -e "\e[34mSecção 3:\e[0m"
+
 
 # Exercício 1
-
+echo -e "\e[1;32mExercício 1:\e[0m"
+echo "(a compilar o programa reader.c)"
 gcc -o reader reader.c
 
 # Exercício 2
 
-echo "Exercício 2:"
+echo -e "\e[1;32mExercício 2:\e[0m"
 
 echo "(a criar utilizador userssi)"
 
@@ -181,47 +186,61 @@ sudo useradd -m -s /bin/bash userssi
 
 # Exercício 3
 
-echo "Exercício 3:"
+echo -e "\e[1;32mExercício 3:\e[0m"
 
-sudo chown -v userssi braga.txt
+
+####### PErguntar
+sudo chown -v userssi ./reader braga.txt
 
 # Exercício 4
 
-echo "Exercício 4:"
+echo -e "\e[1;32mExercício 4:\e[0m"
 
 ./reader braga.txt
 
 # Exercício 5
-
-echo "Exercício 5:"
+echo -e "\e[1;32mExercício 5:\e[0m"
 
 sudo chmod -v u+s reader
 
 # Exercício 6
+#
+#
+#
+#
 
-# echo "Exercício 6:"
+echo -e "\e[1;32mExercício 6:\e[0m"
 
-# ./reader braga.txt
+
+
+./reader braga.txt
+
+# Comentário: 
+# Ao executar novamente o programa reader, com a permissão setuid configurada, 
+# o programa agora deve ser executado com os privilégios de 'userssi' (o dono do ficheiro e do programa).
+# Isso significa que, mesmo que o utilizador que execute o programa seja diferente de 'userssi', 
+# ele terá as permissões do utilizador 'userssi', incluindo as permissões necessárias para ler o ficheiro braga.txt.
+
 
 # Secção 4
 
-echo "Secção 4:"
+echo -e "\e[34mSecção 4:\e[0m"
 
 # Exercício 1
 
-echo "Exercício 1:"
+echo -e "\e[1;32mExercício 1:\e[0m"
 
 getfacl porto.txt
 
 # Exercício 2
 
-echo "Exercício 2:"
-
+echo -e "\e[1;32mExercício 2:\e[0m"
+echo "(a adicionar permissões de escrita ao grupo grupo-ssi)"
 setfacl -m g:grupo-ssi:w porto.txt
 
 # Exercício 3
 
-echo "Exercício 3:"
+echo -e "\e[1;32mExercício 3:\e[0m"
 
 getfacl porto.txt
 
@@ -232,8 +251,7 @@ getfacl porto.txt
 
 # Exercício 4
 
-echo "Exercício 4:"
-
+echo -e "\e[1;32mExercício 4:\e[0m"
 echo "(a escrever no ficheiro porto.txt)"
 
 sudo su joao -c "echo 'Portoooooo!' > porto.txt"
