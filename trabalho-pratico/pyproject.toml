@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my_package"
+authors = [
+    { name = "Afonso Dionísio", email = "a104276@alunos.uminho.pt" },
+    { name = "João Lobo", email = "a104356@alunos.uminho.pt" },
+    { name = "Rita Camacho", email = "a104439@alunos.uminho.pt" }
+]
+
+description = "package description"
+version = "0.0.1"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests > 2.26.0",
+    "cryptography",
+    "pylint",
+    "mypy",
+    "black"
+]
+
+
+[tool.setuptools]
+packages = ["client", "server", "certificate_authority"]

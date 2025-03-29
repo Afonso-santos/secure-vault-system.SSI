@@ -1,0 +1,17 @@
+name: Lint
+on: pull_request
+
+jobs:
+    lint:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - run: sudo add-apt-repository -y ppa:deadsnakes/ppa
+            - run: sudo apt update -y && DEBIAN_FRONTEND=noninteractive sudo -E apt install -y python3.12 python3.12-venv
+            - run: python3.12 -m venv .venv
+            - run: |
+                source .venv/bin/activate
+                pip install pylint mypy .
+                pylint server client common
+                mypy server client common
