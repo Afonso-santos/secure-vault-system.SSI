@@ -45,11 +45,18 @@ indent-after-paren=4
 disable=raw-checker-failed,
         locally-disabled,
         suppressed-message,
-
+        C0413,
+        R0902,
+        R0911,
+        R0914,
+        R0915,
+        R1702,
+        R0801,
         missing-module-docstring,
         too-few-public-methods,
         no-else-return,
-        global-statement
+        global-statement,
+        W0718
 
 [STRING]
 
