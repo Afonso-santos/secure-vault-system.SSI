@@ -55,7 +55,7 @@ class Server:
         if not (
             self.certificate_validator.validate_certificate(self.user_cert, self.name)
         ):
-            raise ValueError("Inavelid client certificate")
+            raise ValueError("Invalid client certificate")
 
         # Server's process function:
 
@@ -184,10 +184,20 @@ class Server:
                     client_state["server_random"] = server_random
                     self.session_key[client_id] = client_state
 
+                    # Encrypt server random with client's public key
+                    encrypted_server_random = client_cert.public_key().encrypt(
+                        server_random,
+                        asymmetric.padding.OAEP(
+                            mgf=asymmetric.padding.MGF1(algorithm=hashes.SHA256()),
+                            algorithm=hashes.SHA256(),
+                            label=None,
+                        ),
+                    )
+
                     # Create SERVER_AUTH response
                     server_auth_packet = create_server_auth(
                         client_nonce,
-                        server_random,
+                        encrypted_server_random,
                         signature,
                     )
 
@@ -195,8 +205,18 @@ class Server:
 
                 case PacketType.KEY_EXCHANGE:
                     print("Received KEY_EXCHANGE")
-                    client_random = message.payload["client_random"]
-                    client_random = base64.b64decode(client_random)
+                    encrypted_client_random = base64.b64decode(
+                        message.payload["client_random"]
+                    )
+
+                    client_random = self.private_key.decrypt(
+                        encrypted_client_random,
+                        asymmetric.padding.OAEP(
+                            mgf=asymmetric.padding.MGF1(algorithm=hashes.SHA256()),
+                            algorithm=hashes.SHA256(),
+                            label=None,
+                        ),
+                    )
 
                     # Store client random
                     client_state["client_random"] = client_random

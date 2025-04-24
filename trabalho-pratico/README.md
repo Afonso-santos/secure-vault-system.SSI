@@ -10,10 +10,12 @@ Then activate the virtual environment and install the project dependencies:
 $ source .venv/bin/activate
 $ pip install .
 ```
+
 ## How to Run the Project
+
 Follow these steps to set up and run the project:
 
-1. Create Certificates (optional if already available). 
+1. Create Certificates (optional if already available).
     First, generate the necessary certificates using the Certificate Authority (CA). This will create:
     - 1 server certificate
     - 3 client certificates
@@ -30,7 +32,6 @@ $ python server certificates/VAULT_SERVER.p12
 ```
 $ python client certificates/VAULT_CLI1.p12   
 ```
-
 
 To exit the virtual environment, you can run:
 

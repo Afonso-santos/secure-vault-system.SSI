@@ -117,9 +117,20 @@ class Client:
                 case PacketType.SERVER_AUTH:
                     print("Received SERVER_AUTH")
                     client_nonce = base64.b64decode(message.payload["client_nonce"])
-                    self.server_random = base64.b64decode(
+
+                    encrypted_server_random = base64.b64decode(
                         message.payload["server_random"]
                     )
+
+                    self.server_random = self.private_key.decrypt(
+                        encrypted_server_random,
+                        padding.OAEP(
+                            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                            algorithm=hashes.SHA256(),
+                            label=None,
+                        ),
+                    )
+
                     signature = base64.b64decode(message.payload["signature"])
 
                     try:
@@ -137,12 +148,23 @@ class Client:
                         return -1
 
                     if self.nonce != client_nonce:
-                        print("Invalid nonceeeeeeeeeeeeeee")
+                        print("Invalid nonce")
                         return -1
 
+                    # Generate client random
                     self.client_random = os.urandom(32)
 
-                    message = create_key_exchange(self.client_random)
+                    # Encrypt client random with server public key
+                    encrypted_client_random = self.server_cert.public_key().encrypt(
+                        self.client_random,
+                        padding.OAEP(
+                            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                            algorithm=hashes.SHA256(),
+                            label=None,
+                        ),
+                    )
+
+                    message = create_key_exchange(encrypted_client_random)
                     self.session_key = derive_keys(
                         self.client_random, self.server_random
                     )

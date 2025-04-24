@@ -1,8 +1,8 @@
 # Repositório SSI 24/25
 
-- A104276 - Afonso Dionísio 
+- A104276 - Afonso Dionísio
 - A104356 - João Lobo
-- A104439 - Rita Camacho 
+- A104439 - Rita Camacho
 
 ### Guiões Práticos
 
