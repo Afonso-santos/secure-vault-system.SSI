@@ -3,6 +3,7 @@ import sys
 import pathlib
 import asyncio
 import base64
+from datetime import datetime, timezone
 
 from cryptography.x509 import Certificate, load_pem_x509_certificate
 from cryptography.hazmat.primitives.serialization import Encoding
@@ -12,6 +13,10 @@ from cryptography.hazmat.primitives import hashes
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from common.utils import get_userdata
 from common.certificate_validator import CertificateValidator
+from file_system import FileSystem
+
+
+# from common.file_system import FileSystem
 from common.Icarus_Protocol import (
     Packet,
     PacketType,
@@ -42,6 +47,7 @@ class Server:
         self.public_key = None
         self.user_cert: Certificate = None
         self.ca_cert: Certificate = None
+
         self.session_key = {}
 
         self.name, self.private_key, self.user_cert, self.ca_cert = get_userdata(
@@ -52,6 +58,8 @@ class Server:
 
         self.certificate_validator = CertificateValidator(self.ca_cert)
 
+        self.file_system = FileSystem()
+
         if not (
             self.certificate_validator.validate_certificate(self.user_cert, self.name)
         ):
@@ -60,12 +68,12 @@ class Server:
         # Server's process function:
 
     def process(self, message: bytes = b"", client_id=None) -> int | bytes:
-        print(f"Server: {self.name}")
-
         # Store client state using client_id
         if client_id and client_id not in self.session_key:
             self.session_key[client_id] = {
+                "name": None,
                 "nonce": None,
+                "time_stamp": None,
                 "server_random": None,
                 "client_random": None,
                 "key": None,
@@ -79,7 +87,6 @@ class Server:
             message = Packet.from_json(message.decode())
             match message.type:
                 case PacketType.CLIENT_HELLO:
-                    print("Received CLIENT_HELLO")
                     client_cert = message.payload["certificate"]
                     client_cert_name = message.payload["certificade_name"]
 
@@ -91,12 +98,12 @@ class Server:
                     if not self.certificate_validator.validate_certificate(
                         client_cert, client_cert_name
                     ):
-                        print("Invalid client certificate")
+                        print("❌ Invalid client certificate")
                         return -1
 
                     # Store client certificate
                     client_state["client_cert"] = client_cert
-                    print(f"Client certificate validated: {client_cert}")
+                    client_state["name"] = client_cert_name
 
                     # Generate and encrypt nonce with client's public key
                     nonce = os.urandom(16)
@@ -111,7 +118,8 @@ class Server:
 
                     # Store nonce
                     client_state["nonce"] = nonce
-                    print(f"Nonce generated: {nonce}")
+                    client_state["time_stamp"] = datetime.now(timezone.utc).timestamp()
+
                     self.session_key[client_id] = client_state
 
                     # Create SERVER_HELLO response
@@ -124,7 +132,6 @@ class Server:
                     return server_hello_packet.to_json().encode()
 
                 case PacketType.CLIENT_AUTH:
-                    print("Received CLIENT_AUTH")
                     client_nonce = message.payload["client_nonce"]
                     server_nonce = message.payload["server_nonce"]
                     signature = message.payload["signature"]
@@ -137,7 +144,7 @@ class Server:
                     # Verify the signature using client's certificate
                     client_cert = client_state.get("client_cert")
                     if not client_cert:
-                        print("No client certificate found")
+                        print("❌ No client certificate found")
                         return -1
 
                     # Verify signature
@@ -152,7 +159,7 @@ class Server:
                             hashes.SHA256(),
                         )
                     except Exception as e:
-                        print(f"Invalid signature: {e}")
+                        print(f"❌ Invalid signature: {e}")
                         return -1
 
                     # Decrypt client nonce with our private key
@@ -175,9 +182,16 @@ class Server:
                         hashes.SHA256(),
                     )
 
-                    if client_state["nonce"] != server_nonce:
-                        print("Invalid nonce")
+                    if (
+                        client_state["nonce"] != server_nonce
+                        and client_state["time_stamp"] + 60
+                        < datetime.now(timezone.utc).timestamp()
+                    ):
+                        print("❌ Invalid nonce or expired timestamp")
                         return -1
+
+                    client_state["nonce"] = None
+                    client_state["time_stamp"] = None
 
                     # Generate server random
                     server_random = os.urandom(32)
@@ -236,7 +250,6 @@ class Server:
                     return change_cipher_spec_packet.to_json().encode()
 
                 case PacketType.FINISH:
-                    print("Received FINISH")
                     # Extract finish data
                     finish_data = message.payload.get("change_spec", "")
                     print(f"Finish data: {finish_data}")
@@ -252,10 +265,9 @@ class Server:
                     return finish_packet.to_json().encode()
 
                 case PacketType.DATA_EXCHANGE:
-                    print("Received DATA_EXCHANGE")
 
                     if not client_state.get("handshake_complete", False):
-                        print("Received data before handshake completion")
+                        print("❌ Received data before handshake completion")
                         return create_error().to_json().encode()
 
                     try:
@@ -266,17 +278,22 @@ class Server:
                         auth_tag = base64.b64decode(
                             message.payload["auth_tag"].encode()
                         )
+
                     except Exception as e:
-                        print(f"Base64 decoding error: {e}")
+                        print(f"❌ Base64 decoding error: {e}")
                         return create_error().to_json().encode()
 
                     try:
                         decrypted_data = decrypt_data(
                             encrypted_data, client_state["key"], iv, auth_tag
                         )
-                        print(f"Decrypted data: {decrypted_data.decode('utf-8')}")
 
-                        response_data = decrypted_data.decode("utf-8").upper()
+                        print(f"📩 Decrypted data: {decrypted_data.decode('utf-8')}")
+
+                        response_data = self.file_system.proccess_cmd(
+                            decrypted_data.decode("utf-8"), client_state["name"]
+                        )
+
                         enc_data, enc_iv, enc_tag = encrypt_data(
                             response_data.encode(), client_state["key"]
                         )

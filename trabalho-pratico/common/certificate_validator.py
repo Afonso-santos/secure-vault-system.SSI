@@ -16,15 +16,11 @@ class CertificateValidator:
             and self.verify_not_before(certificate)
             and self.verify_identity(certificate, except_iden)
         ):
-            print("Certificate is valid.")
             return True
         else:
-            print("Certificate is invalid.")
             return False
 
     def verify_signature(self, certificate: Certificate) -> bool:
-        print(f"Certificate issuer: {certificate.issuer}")
-        print(f"CA subject: {self.ca_cert.subject}")
         issuer = certificate.issuer
         if issuer == self.ca_cert.subject:
             try:
@@ -60,12 +56,6 @@ class CertificateValidator:
         return True
 
     def verify_identity(self, certificate: Certificate, except_iden: str) -> bool:
-
-        print(
-            f"Certificate identity: {certificate.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value}"
-        )
-        print(f"Expected identity: {except_iden}")
-
         if (
             certificate.subject.get_attributes_for_oid(NameOID.PSEUDONYM)[0].value
             != except_iden
