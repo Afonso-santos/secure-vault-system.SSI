@@ -21,6 +21,8 @@ class PacketType(enum.Enum):
     ACK = 9
     ERROR = 10
 
+    GET = 11
+
 
 class Packet:
     def __init__(self, packet_type: PacketType, payload):
@@ -122,6 +124,19 @@ def create_ack() -> Packet:
     """Create an ACK packet"""
     payload = {}
     return create_packet(PacketType.ACK, payload)
+
+
+def create_get(id: str, command: str, key=None) -> Packet:
+    """Create a GET packet"""
+    if key is isinstance(key, bytes):
+        key = base64.b64encode(key).decode("utf-8")
+
+    payload = {
+        "id": id,
+        "key": key,
+        "command": command,
+    }
+    return create_packet(PacketType.GET, payload)
 
 
 def create_error() -> Packet:

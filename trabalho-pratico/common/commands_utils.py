@@ -18,12 +18,12 @@ class CMD_TYPES(Enum):
     DETAILS = "DETAILS"
     REVOKE = "REVOKE"
     READ = "READ"
-    G_CREATE = "GROUP_CREATE"
-    G_DELETE = "GROUP_DELETE"
-    G_ADD_USER = "GROUP_ADD_USER"
-    G_DELETE_USER = "GROUP_DELETE_USER"
-    G_LIST = "GROUP_LIST"
-    G_ADD = "GROUP_ADD"
+    G_CREATE = "G_CREATE"
+    G_DELETE = "G_DELETE"
+    G_ADD_USER = "G_ADD_USER"
+    G_DELETE_USER = "G_DELETE_USER"
+    G_LIST = "G_LIST"
+    G_ADD = "G_ADD"
 
 
 class Command:
@@ -41,8 +41,11 @@ class Command:
 
     @staticmethod
     def from_json(json_str: str):
+
         data = json.loads(json_str)
+
         cmd_type = CMD_TYPES[data["type"]]
+
         payload = data.get("payload")
         return Command(cmd_type, payload)
 
@@ -123,6 +126,7 @@ def create_read_response_command(
     content: str,
     file_hash: str,
     signature: str,
+    last_modified: str,
 ) -> Command:
     """Create a command to respond to a read file request."""
     payload = {
@@ -130,5 +134,68 @@ def create_read_response_command(
         "content": content,
         "file_hash": file_hash,
         "signature": signature,
+        "last_modified": last_modified,
     }
     return create_command(CMD_TYPES.READ, payload)
+
+
+def create_replace_command(
+    file_id: str, ciphertext: bytes, file_hash: bytes, signature: bytes
+) -> Command:
+    """Create a command to replace a file on the server."""
+    payload = {
+        "file_id": file_id,
+        "ciphertext": base64.b64encode(ciphertext).decode(),
+        "file_hash": base64.b64encode(file_hash).decode(),
+        "signature": base64.b64encode(signature).decode(),
+    }
+    return create_command(CMD_TYPES.REPLACE, payload)
+
+
+def create_replace_response_command(msg: str) -> Command:
+    """Create a command to respond to a replace file request."""
+    payload = {"msg": msg}
+    return create_command(CMD_TYPES.REPLACE, payload)
+
+
+def create_group_create_command(group_name: str) -> Command:
+    """Create a command to create a group."""
+    payload = {"group_name": group_name}
+    return create_command(CMD_TYPES.G_CREATE, payload)
+
+
+def create_group_create_response_command(group_id: str) -> Command:
+    """Create a command to respond to a group creation request."""
+    payload = {"group_id": group_id}
+    return create_command(CMD_TYPES.G_CREATE, payload)
+
+
+def create_group_delete_command(group_id: str) -> Command:
+    """Create a command to delete a group."""
+    payload = {"group_id": group_id}
+    return create_command(CMD_TYPES.G_DELETE, payload)
+
+
+def create_group_delete_response_command(msg: str) -> Command:
+    """Create a command to respond to a group deletion request."""
+    payload = {"msg": msg}
+    return create_command(CMD_TYPES.G_DELETE, payload)
+
+
+def create_share_command(
+    file_id: str, user_id: str, permissions: str, key=None
+) -> Command:
+    """Create a command to share a file with a user."""
+    payload = {
+        "file_id": file_id,
+        "user_id": user_id,
+        "permissions": permissions,
+        "key": base64.b64encode(key).decode() if key else None,
+    }
+    return create_command(CMD_TYPES.SHARE, payload)
+
+
+def create_share_response_command(msg: str) -> Command:
+    """Create a command to respond to a share file request."""
+    payload = {"msg": msg}
+    return create_command(CMD_TYPES.SHARE, payload)

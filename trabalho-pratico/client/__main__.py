@@ -10,9 +10,16 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from application import process_cmd, process_response
-from common.utils import get_userdata
+from application import (
+    process_cmd,
+    process_response,
+    process_share_partII,
+    process_get_partII,
+)
+from common.utils import get_userdata, json_to_dict
 from common.certificate_validator import CertificateValidator
+from common.commands_utils import CMD_TYPES, Command
+from handlers import handler_replace_command, handler_share_command
 from common.Icarus_Protocol import (
     Packet,
     PacketType,
@@ -23,13 +30,18 @@ from common.Icarus_Protocol import (
     create_data_exchange,
     create_ack,
     create_error,
+    create_get,
     encrypt_data,
     decrypt_data,
     derive_keys,
 )
 
+CA_HOST = "127.0.0.1"
+CA_PORT = 8888
+
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 7777
+
 MAX_MSG_SIZE = 8192
 
 
@@ -42,10 +54,17 @@ class Client:
         self.ca_cert: Certificate = None
 
         self.handshake_complete = False
+        self.handshake_with_ca_complete = False  # Track CA handshake separately
+        self.handshake_with_server_complete = False  # Track server handshake separately
 
         self.client_random = None
         self.server_random = None
-        self.session_key = None
+
+        self.client_random_ca = None
+        self.server_random_ca = None
+
+        self.session_key_ca = None
+        self.session_key_server = None
 
         self.server_cert = None
         self.nonce = None
@@ -58,33 +77,65 @@ class Client:
 
         self.certificate_validator = CertificateValidator(self.ca_cert)
 
+        self.target = None
+
         if not (
             self.certificate_validator.validate_certificate(self.user_cert, self.name)
         ):
             raise ValueError("Invalid client certificate")
 
-    def process(self, message: bytes = b"") -> int | bytes:
+    def process_handshake(
+        self, message: bytes = None, target: str = None
+    ) -> tuple[str, bytes]:
+        """
+        Process handshake messages.
+        Returns a tuple of (target, message) where target is 'ca', 'server', or None.
+        """
+        if not message:
+            # Initial handshake - start with CA
+            if not self.handshake_with_ca_complete:
+                return (
+                    "ca",
+                    create_client_hello(
+                        self.user_cert.public_bytes(Encoding.PEM), self.name
+                    )
+                    .to_json()
+                    .encode(),
+                )
+            # Then move to server
+            elif not self.handshake_with_server_complete:
+                return (
+                    "server",
+                    create_client_hello(
+                        self.user_cert.public_bytes(Encoding.PEM), self.name
+                    )
+                    .to_json()
+                    .encode(),
+                )
+            else:
+                self.handshake_complete = True
+                return None, b""  # All handshakes complete
 
-        if message:
-            message = Packet.from_json(message.decode())
+        # Process incoming message
+        packet = Packet.from_json(message.decode())
 
-            match message.type:
-                case PacketType.SERVER_HELLO:
+        match packet.type:
+            case PacketType.SERVER_HELLO:
+                server_cert = packet.payload["certificade"]
+                server_cert_name = packet.payload["certificade_name"]
+                server_nonce = packet.payload["server_nonce"]
 
-                    server_cert = message.payload["certificade"]
-                    server_cert_name = message.payload["certificade_name"]
-                    server_nonce = message.payload["server_nonce"]
+                server_cert = base64.b64decode(server_cert)
+                server_nonce = base64.b64decode(server_nonce)
+                self.server_cert = load_pem_x509_certificate(server_cert)
 
-                    server_cert = base64.b64decode(server_cert)
-                    server_nonce = base64.b64decode(server_nonce)
-                    self.server_cert = load_pem_x509_certificate(server_cert)
+                if not self.certificate_validator.validate_certificate(
+                    self.server_cert, server_cert_name
+                ):
+                    print("❌ Invalid server certificate")
+                    return None, b"-1"
 
-                    if not self.certificate_validator.validate_certificate(
-                        self.server_cert, server_cert_name
-                    ):
-                        print("❌ Invalid server certificate")
-                        return -1
-
+                try:
                     server_nonce = self.private_key.decrypt(
                         server_nonce,
                         padding.OAEP(
@@ -93,39 +144,79 @@ class Client:
                             label=None,
                         ),
                     )
-                    self.nonce = os.urandom(16)
-                    self.time_stamp = datetime.now(timezone.utc).timestamp()
-                    nonce = self.server_cert.public_key().encrypt(
-                        self.nonce,
-                        padding.OAEP(
-                            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                            algorithm=hashes.SHA256(),
-                            label=None,
-                        ),
-                    )
+                except Exception as e:
+                    print(f"❌ Decryption failed: {e}")
+                    return None, b"-1"
 
-                    signature = self.private_key.sign(
-                        server_nonce,
+                self.nonce = os.urandom(16)
+                self.time_stamp = datetime.now(timezone.utc).timestamp()
+
+                nonce = self.server_cert.public_key().encrypt(
+                    self.nonce,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None,
+                    ),
+                )
+
+                signature = self.private_key.sign(
+                    server_nonce,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH,
+                    ),
+                    hashes.SHA256(),
+                )
+
+                message = create_client_auth(server_nonce, nonce, signature)
+                return target, message.to_json().encode()
+
+            case PacketType.SERVER_AUTH:
+                client_nonce = base64.b64decode(packet.payload["client_nonce"])
+
+                encrypted_server_random = base64.b64decode(
+                    packet.payload["server_random"]
+                )
+
+                server_random = self.private_key.decrypt(
+                    encrypted_server_random,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None,
+                    ),
+                )
+
+                signature = base64.b64decode(packet.payload["signature"])
+
+                try:
+                    self.server_cert.public_key().verify(
+                        signature,
+                        client_nonce,
                         padding.PSS(
                             mgf=padding.MGF1(hashes.SHA256()),
                             salt_length=padding.PSS.MAX_LENGTH,
                         ),
                         hashes.SHA256(),
                     )
+                except Exception as e:
+                    print(f"❌ Invalid signature: {e}")
+                    return None, b"-1"
 
-                    message = create_client_auth(server_nonce, nonce, signature)
-                    return message.to_json().encode()
+                if (
+                    self.nonce != client_nonce
+                    or self.time_stamp + 60 < datetime.now(timezone.utc).timestamp()
+                ):
+                    print("❌ Invalid nonce or expired timestamp")
+                    return None, b"-1"
 
-                case PacketType.SERVER_AUTH:
+                # Generate and derive keys for CA or server
+                if target == "ca":
+                    self.client_random_ca = os.urandom(32)
 
-                    client_nonce = base64.b64decode(message.payload["client_nonce"])
-
-                    encrypted_server_random = base64.b64decode(
-                        message.payload["server_random"]
-                    )
-
-                    self.server_random = self.private_key.decrypt(
-                        encrypted_server_random,
+                    encrypted_client_random = self.server_cert.public_key().encrypt(
+                        self.client_random_ca,
                         padding.OAEP(
                             mgf=padding.MGF1(algorithm=hashes.SHA256()),
                             algorithm=hashes.SHA256(),
@@ -133,30 +224,14 @@ class Client:
                         ),
                     )
 
-                    signature = base64.b64decode(message.payload["signature"])
-
-                    try:
-                        self.server_cert.public_key().verify(
-                            signature,
-                            client_nonce,
-                            padding.PSS(
-                                mgf=padding.MGF1(hashes.SHA256()),
-                                salt_length=padding.PSS.MAX_LENGTH,
-                            ),
-                            hashes.SHA256(),
-                        )
-                    except Exception as e:
-                        print(f"❌ Invalid signature: {e}")
-                        return -1
-
-                    if self.nonce != client_nonce:
-                        print("Invalid nonce")
-                        return -1
-
-                    # Generate client random
+                    self.server_random_ca = server_random
+                    self.session_key_ca = derive_keys(
+                        self.client_random_ca, self.server_random_ca
+                    )
+                    message = create_key_exchange(encrypted_client_random)
+                else:
                     self.client_random = os.urandom(32)
 
-                    # Encrypt client random with server public key
                     encrypted_client_random = self.server_cert.public_key().encrypt(
                         self.client_random,
                         padding.OAEP(
@@ -166,148 +241,376 @@ class Client:
                         ),
                     )
 
-                    message = create_key_exchange(encrypted_client_random)
-                    self.session_key = derive_keys(
+                    self.server_random = server_random
+                    self.session_key_server = derive_keys(
                         self.client_random, self.server_random
                     )
+                    message = create_key_exchange(encrypted_client_random)
 
-                    return message.to_json().encode()
+                return target, message.to_json().encode()
 
-                case PacketType.CHANGE_CIPHER_SPEC:
+            case PacketType.CHANGE_CIPHER_SPEC:
+                cipher_spec = packet.payload["change_spec"]
 
-                    cipher_spec = message.payload["change_spec"]
+                if cipher_spec != "AES-256-GCM":
+                    print(f"❌ Unsupported cipher spec: {cipher_spec}")
+                    return target, create_error().to_json().encode()
 
-                    if cipher_spec != "AES-256-GCM":
+                finish_message = create_finished(True)
+                return target, finish_message.to_json().encode()
 
-                        return create_error().to_json().encode()
+            case PacketType.FINISH:
+                print(f"✅ Handshake complete with {target}")
 
-                    finish_message = create_finished(True)
-                    return finish_message.to_json().encode()
-
-                case PacketType.FINISH:
-                    print("Received FINISH - Handshake complete")
-                    print("🔒 Secure channel established!")
-
-                    self.handshake_complete = True
-                    message = ""
-                    return self.process(message)
-
-                case PacketType.DATA_EXCHANGE:
-
-                    encrypted_data = base64.b64decode(message.payload["data"])
-                    iv = base64.b64decode(message.payload["iv"])
-                    auth_tag = base64.b64decode(message.payload["auth_tag"])
-
-                    try:
-                        decrypted_data = decrypt_data(
-                            encrypted_data, self.session_key, iv, auth_tag
+                if target == "ca":
+                    self.handshake_with_ca_complete = True
+                    return (
+                        "server",
+                        create_client_hello(
+                            self.user_cert.public_bytes(Encoding.PEM), self.name
                         )
-                        print(f"🔑 Decrypted data: {decrypted_data.decode('utf-8')}")
-
-                        process_response(
-                            self,
-                            decrypted_data.decode("utf-8"),
-                        )
-
-                        return create_ack().to_json().encode()
-                    except Exception as e:
-                        print(f"Decryption error: {e}")
-                        return create_error().to_json().encode()
-
-                case PacketType.ACK:
-                    return self.process(message="")
-
-                case PacketType.ERROR:
-                    print("❌ Received ERROR")
-                    return -1
-
-                case _:
-                    print("❌ Unknown message type")
-                    return -1
-        else:
-            if self.handshake_complete:
-                message = input("Enter data to send:\n-->> ")
-                if message:
-                    message = process_cmd(self, message)
-
-                    print(f"Command data: {message}")
-
-                    encrypted_data, iv, auth_tag = encrypt_data(
-                        message, self.session_key
+                        .to_json()
+                        .encode(),
                     )
-                    message = create_data_exchange(encrypted_data, iv, auth_tag)
-                    return message.to_json().encode()
-                return message.to_json().encode()
-            else:
+                elif target == "server":
+                    self.handshake_with_server_complete = True
+                    self.handshake_complete = True
+                    print("🔒 Secure channel established!")
+                    return None, b""
 
-                message = create_client_hello(
-                    self.user_cert.public_bytes(Encoding.PEM), self.name
+            case PacketType.ERROR:
+                print("❌ Error during handshake")
+                return None, b"-1"
+
+            case _:
+                print(f"❌ Unexpected handshake message type: {packet.type}")
+                return None, b"-1"
+
+    def process_message(self, message: bytes = None) -> tuple[str, bytes]:
+        """
+        Process application messages after handshake is complete.
+        Returns a tuple of (target, message) where target is 'server', 'ca', or None.
+        """
+        if message:
+            try:
+                packet = Packet.from_json(message.decode())
+                print(f"📥 Received message: {packet}")
+
+                # target = packet.source if hasattr(packet, 'source') else 'server'
+
+                session_key = (
+                    self.session_key_ca
+                    if self.target == "ca"
+                    else self.session_key_server
                 )
-                return message.to_json().encode()
 
-        return -1
+                match packet.type:
+                    case PacketType.DATA_EXCHANGE:
+                        encrypted_data = base64.b64decode(packet.payload["data"])
+                        iv = base64.b64decode(packet.payload["iv"])
+                        auth_tag = base64.b64decode(packet.payload["auth_tag"])
+
+                        try:
+                            decrypted_data = decrypt_data(
+                                encrypted_data, session_key, iv, auth_tag
+                            )
+                            print(
+                                f"🔑 Decrypted data: {decrypted_data.decode('utf-8')}"
+                            )
+
+                            try:
+                                comando = Command.from_json(
+                                    decrypted_data.decode("utf-8")
+                                )
+
+                                if comando.type == CMD_TYPES.GET:
+                                    return self.process_message(decrypted_data)
+                                elif comando.type == CMD_TYPES.READ:
+                                    comando = Command.from_json(
+                                        decrypted_data.decode("utf-8")
+                                    )
+                                    last_changed = comando.payload.get("last_modified")
+                                    print(f"📄 File content: ")
+                                    print(comando)
+
+                                    print(f"File last modified date: {last_changed}")
+                                    print(
+                                        f"last_changed: {last_changed} .. {self.name}"
+                                    )
+                                    if last_changed != self.name:
+                                        print(
+                                            f"-----File last modified date: {last_changed}"
+                                        )
+
+                                        print(
+                                            f".....comando.payload: {comando.payload} -- type: {type(comando.payload)}"
+                                        )
+
+                                        message = process_get_partII(
+                                            comando.payload, last_changed
+                                        )
+
+                                        print(f"📄 File content: {message}")
+
+                                        encrypted_data, iv, auth_tag = encrypt_data(
+                                            message.encode(),
+                                            self.session_key_ca,
+                                        )
+                                        self.target = "ca"
+                                        return (
+                                            "ca",
+                                            create_data_exchange(
+                                                encrypted_data, iv, auth_tag
+                                            )
+                                            .to_json()
+                                            .encode(),
+                                        )
+
+                                    # return self.target, create_ack().to_json().encode()
+
+                                process_response(
+                                    self,
+                                    decrypted_data.decode("utf-8"),
+                                )
+
+                            except Exception as e:
+                                print(f"⚠️ Not a command format: {e}")
+
+                            return self.target, create_ack().to_json().encode()
+
+                        except Exception as e:
+                            print(f"❌ Decryption error: {e}")
+                            return self.target, create_error().to_json().encode()
+
+                    case PacketType.ACK:
+                        print("✅ Received ACK")
+                        return None, b""
+
+                    case PacketType.GET:
+                        key = packet.payload.get("key")
+                        command_json = packet.payload.get("command")
+
+                        try:
+                            command = Command.from_json(command_json)
+
+                            match command.type:
+                                case CMD_TYPES.REPLACE:
+                                    file_id = command.payload.get("file_id")
+                                    file_path = command.payload.get("file_path")
+
+                                    message_cmd = handler_replace_command(
+                                        self, file_id, file_path, key
+                                    )
+
+                                    encrypted_data, iv, auth_tag = encrypt_data(
+                                        message_cmd.to_json().encode("utf-8"),
+                                        self.session_key_server,
+                                    )
+
+                                    return (
+                                        "server",
+                                        create_data_exchange(
+                                            encrypted_data, iv, auth_tag
+                                        )
+                                        .to_json()
+                                        .encode(),
+                                    )
+
+                                case CMD_TYPES.SHARE:
+
+                                    if command.payload.get("file_key") is None:
+
+                                        command.payload["file_key"] = key
+                                        message = process_share_partII(command.payload)
+
+                                        encrypted_data, iv, auth_tag = encrypt_data(
+                                            message.encode(),
+                                            self.session_key_ca,
+                                        )
+                                        self.target = "ca"
+                                        return (
+                                            "ca",
+                                            create_data_exchange(
+                                                encrypted_data, iv, auth_tag
+                                            )
+                                            .to_json()
+                                            .encode(),
+                                        )
+                                    elif command.payload.get("client_key") is None:
+
+                                        file_id = command.payload.get("file_id")
+                                        user_id = command.payload.get("user_id")
+                                        permissions = command.payload.get("permissions")
+                                        file_key = command.payload.get("file_key")
+
+                                        messsag_cmd = handler_share_command(
+                                            self,
+                                            file_id,
+                                            user_id,
+                                            permissions,
+                                            file_key,
+                                            key,
+                                        )
+
+                                        encrypted_data, iv, auth_tag = encrypt_data(
+                                            messsag_cmd.to_json().encode("utf-8"),
+                                            self.session_key_server,
+                                        )
+
+                                        self.target = "server"
+                                        return (
+                                            "server",
+                                            create_data_exchange(
+                                                encrypted_data, iv, auth_tag
+                                            )
+                                            .to_json()
+                                            .encode(),
+                                        )
+
+                                case CMD_TYPES.READ:
+                                    print("🔒 Received READ command")
+
+                                    print(
+                                        f"📄 File content: {command.payload} -- {type(command.payload)}"
+                                    )
+                                    output = command.to_json()
+                                    print(
+                                        f"📄 File content: {output} -- {type(output)}"
+                                    )
+
+                                    process_response(self, output, key)
+
+                        except Exception as e:
+                            print(f"❌ Error processing GET command: {e}")
+                            return "server", create_error().to_json().encode()
+
+                    case PacketType.ERROR:
+                        print("❌ Received ERROR during data exchange")
+                        return None, b""
+
+                    case _:
+                        print(f"❌ Unknown message type: {packet.type}")
+                        return "server", create_error().to_json().encode()
+
+            except Exception as e:
+                print(f"❌ Error processing message: {e}")
+                return None, b""
+
+        else:
+            print("🔒 Secure session established. You can send commands.")
+            self.target = "server"
+            message = input("Enter data to send:\n-->> ")
+            if message:
+                if message.lower() == "exit":
+                    print("Exiting...")
+                    return None, b"-1"
+
+                message = process_cmd(self, message)
+                encrypted_data, iv, auth_tag = encrypt_data(
+                    message.encode(), self.session_key_server
+                )
+                message = create_data_exchange(encrypted_data, iv, auth_tag)
+                return "server", message.to_json().encode()
+
+            return None, b""
+
+        return None, b""
 
 
-async def tcp_sender(path_to_client_cert: str):
-    reader, writer = await asyncio.open_connection(SERVER_HOST, SERVER_PORT)
-    print(f"Connected to server at {SERVER_HOST}:{SERVER_PORT}")
-    cliente = Client(path_to_client_cert)
+async def tcp_sender_dual_server(path_to_client_cert: str):
+    # Connect to CA Server
+    print(f"Connecting to CA server at {CA_HOST}:{CA_PORT}...")
+    ca_reader, ca_writer = await asyncio.open_connection(CA_HOST, CA_PORT)
+    print("✅ Connected to CA server")
+
+    # Connect to App Server
+    print(f"Connecting to application server at {SERVER_HOST}:{SERVER_PORT}...")
+    server_reader, server_writer = await asyncio.open_connection(
+        SERVER_HOST, SERVER_PORT
+    )
+    print("✅ Connected to application server")
+
+    client = Client(path_to_client_cert)
 
     try:
-        message = cliente.process()
-        while message != -1:
+        # Start with handshake phase
+        target, message = client.process_handshake()
+
+        while True:
+            if message == b"-1":
+                print("❌ Fatal error in protocol - exiting")
+                break
+
             if message:
-                writer.write(message)
-                await writer.drain()  # Make sure data is sent
-                data = await reader.read(MAX_MSG_SIZE)
-                if not data:  # Check if server closed connection
-                    print("Server closed connection")
-                    break
-                message = cliente.process(data)
-            else:
-                # If handshake is complete but no message to send right now
-                if cliente.handshake_complete:
-                    print(
-                        "Handshake complete, enter data to send or wait for server data"
-                    )
-                    # Add interactive prompt or processing logic here
-                    user_input = await asyncio.to_thread(
-                        input,
-                        "Enter message (or press Enter to wait for server data): ",
-                    )
-                    if user_input:
-                        encrypted_data, iv, auth_tag = encrypt_data(
-                            user_input.encode(), cliente.session_key
-                        )
-                        data_packet = create_data_exchange(encrypted_data, iv, auth_tag)
-                        writer.write(data_packet.to_json().encode())
-                        await writer.drain()
+                # Send message based on target
+                if target == "ca":
+                    print("📤 Sending to CA server...")
+                    ca_writer.write(message)
+                    await ca_writer.drain()
+                    data = await ca_reader.read(MAX_MSG_SIZE)
+                    print("📥 Received from CA server")
 
-                    # Check for incoming data with a short timeout
-                    try:
-                        data = await asyncio.wait_for(
-                            reader.read(MAX_MSG_SIZE), timeout=0.5
-                        )
-                        if data:
-                            message = cliente.process(data)
-                        else:
-                            continue
-                    except asyncio.TimeoutError:
-                        continue
+                    # Process the CA server response
+                    if not client.handshake_complete:
+                        target, message = client.process_handshake(data, "ca")
+                    else:
+                        # We shouldn't normally communicate with CA after handshake
+                        target, message = client.process_message(data)
+
+                elif target == "server":
+                    print("📤 Sending to application server...")
+                    server_writer.write(message)
+                    await server_writer.drain()
+                    data = await server_reader.read(MAX_MSG_SIZE)
+                    print("📥 Received from application server")
+
+                    # Process the app server response
+                    if not client.handshake_complete:
+                        target, message = client.process_handshake(data, "server")
+                    else:
+                        target, message = client.process_message(data)
+
                 else:
-                    # Wait a bit and try again
-                    await asyncio.sleep(0.1)
-                    continue
+                    print(f"❌ Unknown target: {target}")
+                    break
+            else:
+                if client.handshake_complete:
+                    # Application phase - get user input
+                    print("🔒 Secure session established. You can send commands.")
 
-        writer.write(b"\n")
-        print("Socket closed")
-        writer.close()
-        await writer.wait_closed()
+                    # Wait for user input or server message
+                    target, message = client.process_message()
+
+                    # Check for incoming messages from server
+                    if not message:  # No user input, check for server messages
+                        try:
+                            # Set a small timeout to not block forever
+                            data = await asyncio.wait_for(
+                                server_reader.read(MAX_MSG_SIZE), timeout=0.5
+                            )
+                            if data:
+                                target, message = client.process_message(data)
+                        except asyncio.TimeoutError:
+                            # No incoming message, just continue
+                            await asyncio.sleep(0.1)
+                            continue
+                else:
+                    # Still in handshake phase but no message to send
+                    # This might be an intermediate state or an error
+                    await asyncio.sleep(0.1)
+
+    except KeyboardInterrupt:
+        print("\n🔒 Client interrupted. Closing connections...")
     except Exception as e:
-        print(f"Socket closed due to {e}!")
-        writer.write(b"\n")
-        writer.close()
-        await writer.wait_closed()
+        print(f"❌ Error: {e}")
+    finally:
+        print("Closing connections...")
+        server_writer.write(b"\n")
+        server_writer.close()
+        await server_writer.wait_closed()
+        ca_writer.close()
+        await ca_writer.wait_closed()
+        print("✅ Connections closed")
 
 
 def main(args):
@@ -322,7 +625,7 @@ def main(args):
         return 0
 
     try:
-        return asyncio.run(tcp_sender(client_cert_path))
+        return asyncio.run(tcp_sender_dual_server(client_cert_path))
     except KeyboardInterrupt:
         print("\nClient interrupted. Exiting...")
         return 0

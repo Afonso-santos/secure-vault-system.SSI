@@ -18,6 +18,15 @@ def pprint_add(payload: dict) -> None:
     print("------------------------------")
 
 
+def pprint_group_create(payload: dict) -> None:
+    """
+    Pretty print the group create command response
+    """
+    print("👥 Group created successfully")
+    print(f"Group ID: {payload['group_id']}")
+    print("------------------------------")
+
+
 def pprint_details(payload: dict) -> None:
     """
     Pretty print the details command response
@@ -36,10 +45,8 @@ def pprint_details(payload: dict) -> None:
     print("------------------------------")
 
 
-def pprint_read(client, payload: dict) -> None:
-    """
-    Pretty print the read command response and decrypt the file
-    """
+def pprint_read(client, payload: dict, public_key) -> None:
+    """Pretty print the read command response and decrypt the file"""
     # Decode the payload items
     encrypted_key = base64.b64decode(payload["key"])
     file_hash = base64.b64decode(payload["file_hash"])
@@ -58,25 +65,69 @@ def pprint_read(client, payload: dict) -> None:
         ),
     )
 
+    print(f"public key: {public_key}")
+
     # Optional: Verify the signature
     try:
-        client.public_key.verify(
-            signature,
-            file_hash,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256(),
-        )
-        print("✅ Signature verification successful")
+        if key is None:
+            client.public_key.verify(
+                signature,
+                file_hash,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH,
+                ),
+                hashes.SHA256(),
+            )
+        else:
+            public_key = serialization.load_pem_public_key(
+                public_key.encode(), backend=None
+            )
+            public_key.verify(
+                signature,
+                file_hash,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH,
+                ),
+                hashes.SHA256(),
+            )
+            print("✅ Signature verification successful")
     except Exception as e:
         print(f"❌ Signature verification failed: {e}")
 
     # Decrypt the file content
     plaintext = decrypt_file(ciphertext, key)
+    # Try to decode as UTF-8, but handle binary data gracefully
 
+    decoded_content = plaintext.decode()
     print("📄 File content:")
-    print(plaintext.decode("utf-8"))
+    print(decoded_content)
+
     print("------------------------------")
 
-    return plaintext
+
+def pprint_replace(msg: str) -> None:
+    """
+    Pretty print the replace command response
+    """
+    print("📄" + msg)
+    print("------------------------------")
+
+
+def pprint_group_delete(payload: dict) -> None:
+    """
+    Pretty print the group delete command response
+    """
+    print("👥 Group deleted successfully")
+    print(f"👥 {payload['msg']}")
+    print("------------------------------")
+
+
+def pprint_share(payload: dict) -> None:
+    """
+    Pretty print the share command response
+    """
+    print("📄 File shared successfully")
+    print(f"Permissions: {payload['msg']}")
+    print("------------------------------")

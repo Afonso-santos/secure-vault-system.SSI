@@ -50,10 +50,10 @@ def verify_signature(data: bytes, signature: bytes, key: rsa.RSAPublicKey) -> bo
         return False
 
 
-def encrypt_file(plaintext: str) -> tuple:
+def encrypt_file(plaintext: str, key=None) -> tuple:
     """Encrypt a file using AES encryption"""
-
-    key = os.urandom(32)  # Generate a random 256-bit key
+    if key is None:
+        key = os.urandom(32)  # Generate a random 256-bit key
 
     # Generate a random IV
     iv = os.urandom(16)

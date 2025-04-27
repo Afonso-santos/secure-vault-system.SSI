@@ -13,6 +13,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from common.Icarus_Protocol import *
 from common.certificate_validator import CertificateValidator
 from certificate_authority.certificates_generator import create_certificates
+from common.commands_utils import Command, CMD_TYPES  # Import the CMD_TYPES enum
 
 
 SERVER_HOST = "127.0.0.1"
@@ -77,8 +78,11 @@ class CertificateAuthority:
             match message.type:
                 case PacketType.CLIENT_HELLO:
                     print("Client Hello received")
+
                     client_cert = message.payload["certificate"]
-                    client_cert_name = message.payload["certificate_name"]
+
+                    client_cert_name = message.payload["certificade_name"]
+
                     client_cert = base64.b64decode(client_cert)
                     client_cert = load_pem_x509_certificate(client_cert)
 
@@ -173,9 +177,19 @@ class CertificateAuthority:
                     client_state["server_random"] = server_random
                     self.session_key[client_id] = client_state
 
+                    # Encrypt server random with client's public key
+                    encrypted_server_random = client_cert.public_key().encrypt(
+                        server_random,
+                        asymmetric.padding.OAEP(
+                            mgf=asymmetric.padding.MGF1(algorithm=hashes.SHA256()),
+                            algorithm=hashes.SHA256(),
+                            label=None,
+                        ),
+                    )
+
                     server_auth_packet = create_server_auth(
                         client_nonce,
-                        server_random,
+                        encrypted_server_random,
                         signature,
                     )
 
@@ -183,7 +197,16 @@ class CertificateAuthority:
 
                 case PacketType.KEY_EXCHANGE:
                     client_random = message.payload["client_random"]
-                    client_random = base64.b64decode(client_random)
+                    encrypted_client_random = base64.b64decode(client_random)
+
+                    client_random = self.priv_key.decrypt(
+                        encrypted_client_random,
+                        asymmetric.padding.OAEP(
+                            mgf=asymmetric.padding.MGF1(algorithm=hashes.SHA256()),
+                            algorithm=hashes.SHA256(),
+                            label=None,
+                        ),
+                    )
 
                     client_state["client_random"] = client_random
 
@@ -211,7 +234,7 @@ class CertificateAuthority:
                     print("Received DATA_EXCHANGE")
 
                     if not client_state.get("handshake_complete", False):
-                        print("Received data before handshake completion")
+
                         return create_error().to_json().encode()
 
                     try:
@@ -222,24 +245,23 @@ class CertificateAuthority:
                         auth_tag = base64.b64decode(
                             message.payload["auth_tag"].encode()
                         )
+
                     except Exception as e:
-                        print(f"Base64 decoding error: {e}")
+                        print(f"❌ Base64 decoding error: {e}")
                         return create_error().to_json().encode()
 
                     try:
                         decrypted_data = decrypt_data(
                             encrypted_data, client_state["key"], iv, auth_tag
                         )
-                        print(f"Decrypted data: {decrypted_data.decode('utf-8')}")
+                        print(f"🔑 Decrypted data: {decrypted_data.decode('utf-8')}")
 
-                        response_data = decrypted_data.decode("utf-8").upper()
-                        enc_data, enc_iv, enc_tag = encrypt_data(
-                            response_data.encode(), client_state["key"]
-                        )
-                        data_exchange_packet = create_data_exchange(
-                            enc_data, enc_iv, enc_tag
-                        )
-                        return data_exchange_packet.to_json().encode()
+                        comando = Command.from_json(decrypted_data.decode("utf-8"))
+
+                        if comando.type == CMD_TYPES.GET:
+                            print("Received GET command")
+
+                            return self.process(decrypted_data, client_id)
 
                     except Exception as e:
                         print(f"Decryption error: {e}")
@@ -249,6 +271,38 @@ class CertificateAuthority:
                     print("Received ACK")
 
                     return create_ack().to_json().encode()
+
+                case PacketType.GET:
+                    print(
+                        f"message.payload: {message.payload} -- {type(message.payload)}"
+                    )
+                    id_thing = message.payload["id"]
+
+                    comando = message.payload["command"]
+
+                    key = self.key_catalog.get(id_thing)
+
+                    if key:
+                        key_pem = key.public_bytes(
+                            encoding=serialization.Encoding.PEM,
+                            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                        ).decode("utf-8")
+
+                        data = create_get(id_thing, comando, key_pem)
+
+                        enc_data, enc_iv, enc_tag = encrypt_data(
+                            data.to_json().encode(),
+                            client_state["key"],
+                        )
+                        data_exchange_packet = create_data_exchange(
+                            enc_data,
+                            enc_iv,
+                            enc_tag,
+                        )
+                        return data_exchange_packet.to_json().encode()
+                    else:
+                        print(f"Key not found for id: {id_thing}")
+                        return create_error().to_json().encode()
 
                 case _:
                     print(f"Unknown message type: {message.type}")

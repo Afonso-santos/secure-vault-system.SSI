@@ -16,13 +16,20 @@ from common.commands_utils import (
     create_details_response_command,
     create_error_command,
     create_read_response_command,
+    create_replace_response_command,
+    create_details_response_command,
+    create_group_create_response_command,
+    create_group_delete_response_command,
+    create_share_response_command,
 )
+
 from common.utils import dict_to_json, json_to_dict
 
 PATH = "server/storage/"
 
 
 class Permission(Enum):
+    OWN = "own"
     READ = "read"
     WRITE = "write"
 
@@ -31,7 +38,8 @@ class User:
     def __init__(self, user_id: str, name: str, vault_path: str):
         self.user_id = user_id
         self.name = name
-        self.vault_path = None
+        self.vault_path = vault_path
+        self.list_of_files: List[str] = []
         self.groups: List[str] = []
 
 
@@ -83,8 +91,8 @@ class File:
         self.path = None
         self.last_changed = last_changed
         self.listed_users: dict[str, str] = {}  # user_id -> key
-        self.created_at = datetime.now()
-        self.modified_at = datetime.now()
+        self.created_at = str(datetime.now())
+        self.modified_at = str(datetime.now())
 
         # self.listed_users.append(owner_id)
 
@@ -94,6 +102,10 @@ class File:
     def add_user(self, user_id: str, key: str):
         if user_id not in self.listed_users:
             self.listed_users[user_id] = key
+
+    def set_modified_at(self, modified_at: str, last_changed: str):
+        self.modified_at = modified_at
+        self.last_changed = last_changed
 
 
 class AccessControl:
@@ -139,6 +151,17 @@ class FileSystem:
         self.files: dict[str, File] = {}
         self.acess_control = AccessControl()
 
+    def add_user(self, user_id: str, name: str):
+        """
+        Add a user to the file system.
+        """
+        if user_id not in self.users:
+            self.users[user_id] = User(user_id, name, os.path.join(PATH, user_id))
+            os.makedirs(self.users[user_id].vault_path, exist_ok=True)
+            print(f"User {user_id} added to the file system.")
+        else:
+            print(f"User {user_id} already exists in the file system.")
+
     def proccess_cmd(self, decrypt_data, client_id):
         """
         Process the command given by the user
@@ -179,6 +202,22 @@ class FileSystem:
                     print("Reading file")
                     return self.read_file(cmd.payload, client_id)
 
+                case CMD_TYPES.REPLACE:
+                    print("Replacing file")
+                    return self.replace(cmd.payload, client_id)
+
+                case CMD_TYPES.G_CREATE:
+                    print("Creating group")
+                    return self.create_group(cmd.payload, client_id)
+
+                case CMD_TYPES.G_DELETE:
+                    print("Deleting group")
+                    return self.delete_group(cmd.payload, client_id)
+
+                case CMD_TYPES.SHARE:
+                    print("Sharing file")
+                    return self.share_file(cmd.payload, client_id)
+
                 # case CMD_TYPES.LIST:
                 #     return self.list_files(client_id)
                 # case CMD_TYPES.SHARE:
@@ -211,10 +250,26 @@ class FileSystem:
             print(f"Error processing command: {e}")
             return {"error": str(e)}
 
+    def get_thing(self, thing_id: str, client_id) -> Optional[User | Group | File]:
+        """
+        Get a user, group, or file by ID.
+        """
+        if thing_id in self.users:
+            return self.users[thing_id]
+        elif thing_id in self.groups:
+            return self.groups[thing_id]
+        elif thing_id in self.files:
+            file = self.files[thing_id]
+            key = file.listed_users.get(client_id)
+            return key
+        else:
+            return None
+
     def add_file(self, payload, client_id: str) -> str:
         """
         Add a file to the file system with proper key management.
         """
+        print("Adding file numver: ", len(self.files))
         file_id = "file_" + str(len(self.files) + 1)
         file_name = payload["file_name"]
         ciphercontent = payload["ciphercontent"]  # Base64 encoded encrypted content
@@ -229,39 +284,24 @@ class FileSystem:
             owner_id=client_id,
             last_changed=client_id,
         )
+        self.files[file_id] = file
 
         file.add_user(client_id, encrypt_key)
+
         path_file = os.path.join(PATH, client_id, file_name)
         file.set_path(path_file)
 
-        # Create or update user
-        user = User(
-            user_id=client_id,
-            name=client_id,
-            vault_path=os.path.join(PATH, client_id),
-        )
-
-        self.users[client_id] = user
         # Add the file to the file system
         self.files[file_id] = file
+        self.users[client_id].list_of_files.append(file_id)
+        self.acess_control.add_permission(client_id, file_id, Permission.OWN)
         self.acess_control.add_permission(client_id, file_id, Permission.READ)
         self.acess_control.add_permission(client_id, file_id, Permission.WRITE)
 
-        file_data = (
-            str(len(ciphercontent))
-            + ciphercontent
-            + str(len(file_hash))
-            + file_hash
-            + str(len(signature))
-            + signature
-        )
+        file_data = ciphercontent + " " + file_hash + " " + signature
 
-        try:
-            os.makedirs(os.path.dirname(path_file), exist_ok=True)
-            with open(path_file, "w") as f:
-                f.write(file_data)
-        except Exception as e:
-            return create_error_command(f"Error writing file: {str(e)}").to_json()
+        if -1 == write_file(file.path, file_data):
+            return create_error_command("Error writing file").to_json()
 
         return create_add_response_command(file_id).to_json()
 
@@ -285,9 +325,41 @@ class FileSystem:
             file.file_name,
             file.owner_id,
             list(file.listed_users.keys()),
-            file.created_at.isoformat(),
-            file.modified_at.isoformat(),
+            file.created_at,
+            file.modified_at,
             file.last_changed,
+        ).to_json()
+
+    def replace(self, payload, client_id: str) -> dict:
+        """
+        Replace a file in the file system.
+        """
+        print("payload: ", payload)
+        file_id = payload["file_id"]
+
+        if file_id not in self.files:
+            return create_error_command("File not found").to_json()
+
+        if not self.acess_control.check_permission(
+            client_id, file_id, Permission.WRITE
+        ):
+            return create_error_command("Permission denied").to_json()
+
+        file = self.files[file_id]
+        ciphertext = payload["ciphertext"]
+        file_hash = payload["file_hash"]
+        signature = payload["signature"]
+
+        file.set_modified_at(datetime.now().isoformat(), client_id)
+        self.files[file_id] = file
+
+        file_data = ciphertext + " " + file_hash + " " + signature
+
+        if -1 == write_file(file.path, file_data):
+            return create_error_command("Error writing file").to_json()
+
+        return create_replace_response_command(
+            f"File {file_id} replaced successfully"
         ).to_json()
 
     def read_file(self, payload, client_id: str) -> dict:
@@ -312,28 +384,14 @@ class FileSystem:
             with open(file_path, "r") as f:
                 file_data = f.read()
 
-            i = 0
-            # Read length of ciphercontent (assume max 5 digits for simplicity)
-            while file_data[i].isdigit():
-                i += 1
-            len_cipher = int(file_data[:i])
-            ciphercontent = file_data[i : i + len_cipher]
-            i += len_cipher
+            # Split file data by spaces
+            parts = file_data.split(" ")  # Split into 3 parts at most
+            if len(parts) != 3:
+                return create_error_command("Invalid file format").to_json()
 
-            # Read length of file_hash
-            j = i
-            while file_data[j].isdigit():
-                j += 1
-            len_hash = int(file_data[i:j])
-            file_hash = file_data[j : j + len_hash]
-            j += len_hash
-
-            # Read length of signature
-            k = j
-            while file_data[k].isdigit():
-                k += 1
-            len_signature = int(file_data[j:k])
-            signature = file_data[k : k + len_signature]
+            ciphercontent = parts[0]
+            file_hash = parts[1]
+            signature = parts[2]
 
             print(f"ciphercontent: {ciphercontent}")
             print(f"file_hash: {file_hash}")
@@ -345,6 +403,94 @@ class FileSystem:
                 ciphercontent,
                 file_hash,
                 signature,
+                file.last_changed,
             ).to_json()
         except Exception as e:
             return create_error_command(f"Error reading file: {str(e)}").to_json()
+
+    def create_group(self, payload, client_id: str) -> dict:
+        """
+        Create a group and add the user to it.
+        """
+        group_id = "group_" + str(len(self.groups) + 1)
+
+        group = Group(group_id, client_id)
+        group.add_member(client_id, {Permission.OWN, Permission.READ, Permission.WRITE})
+
+        self.groups[group_id] = group
+
+        user = self.users[client_id]
+
+        user.groups.append(group_id)
+
+        self.users[client_id].groups.append(group_id)
+
+        return create_group_create_response_command(group_id).to_json()
+
+    def delete_group(self, payload, client_id: str) -> dict:
+        """
+        Delete a group and remove the user from it.
+        """
+        group_id = payload["group_id"]
+
+        if group_id not in self.groups:
+            return create_error_command("Group not found").to_json()
+
+        group = self.groups[group_id]
+
+        # Check if client is the owner of the group
+        if group.owner_id != client_id:
+            return create_error_command("Permission denied").to_json()
+
+        # Remove the group from the user's groups
+        for user in self.users.values():
+            if group_id in user.groups:
+                user.groups.remove(group_id)
+
+        # Delete the group
+        del self.groups[group_id]
+        self.acess_control.permissions.pop(group_id, None)
+
+        return create_group_delete_response_command(
+            f"Group {group_id} deleted successfully"
+        ).to_json()
+
+    def share_file(self, payload, client_id: str) -> dict:
+        """
+        Share a file with another user.
+        """
+        file_id = payload["file_id"]
+        user_id = payload["user_id"]
+        permissions = payload["permissions"]
+        file_key = payload["key"]
+
+        if file_id not in self.files:
+            return create_error_command("File not found").to_json()
+
+        # if user_id not in self.users:
+        #     return create_error_command("User not found").to_json()
+
+        if file_id in self.files:
+
+            file = self.files[file_id]
+
+            file.add_user(user_id, file_key)
+
+            # Set permissions for the user
+            self.acess_control.add_permission(user_id, file_id, Permission(permissions))
+
+            return create_share_response_command(
+                f"File {file_id} shared with {user_id} successfully"
+            ).to_json()
+
+
+def write_file(file_path: str, data: str) -> None:
+    """
+    Write data to a file.
+    """
+    try:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, "w") as f:
+            f.write(data)
+    except Exception as e:
+        return -1

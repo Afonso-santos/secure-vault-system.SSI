@@ -11,8 +11,10 @@ from cryptography.hazmat.primitives import asymmetric
 from cryptography.hazmat.primitives import hashes
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from common.utils import get_userdata
+from common.utils import get_userdata, json_to_dict
 from common.certificate_validator import CertificateValidator
+from common.commands_utils import CMD_TYPES
+from common.commands_utils import Command
 from file_system import FileSystem
 
 
@@ -30,6 +32,7 @@ from common.Icarus_Protocol import (
     derive_keys,
     encrypt_data,
     decrypt_data,
+    create_get,
 )
 
 # Constants
@@ -37,6 +40,9 @@ SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 7777
 MAX_MSG_SIZE = 8192
 SERVER_PATH = None
+
+
+SERVER_INSTANCE = None
 
 
 class Server:
@@ -63,7 +69,7 @@ class Server:
         if not (
             self.certificate_validator.validate_certificate(self.user_cert, self.name)
         ):
-            raise ValueError("Invalid client certificate")
+            raise ValueError("Inavelid client certificate")
 
         # Server's process function:
 
@@ -218,7 +224,7 @@ class Server:
                     return server_auth_packet.to_json().encode()
 
                 case PacketType.KEY_EXCHANGE:
-                    print("Received KEY_EXCHANGE")
+
                     encrypted_client_random = base64.b64decode(
                         message.payload["client_random"]
                     )
@@ -260,6 +266,8 @@ class Server:
                     client_state["handshake_complete"] = True
                     self.session_key[client_id] = client_state
 
+                    self.file_system.add_user(client_state["name"], client_id)
+
                     # Send our own FINISH packet
                     finish_packet = create_finished(True)  # Simplified value for demo
                     return finish_packet.to_json().encode()
@@ -287,20 +295,30 @@ class Server:
                         decrypted_data = decrypt_data(
                             encrypted_data, client_state["key"], iv, auth_tag
                         )
-
+                        print(f"🔑 Decrypted data: {decrypted_data.decode('utf-8')}")
                         print(f"📩 Decrypted data: {decrypted_data.decode('utf-8')}")
 
-                        response_data = self.file_system.proccess_cmd(
-                            decrypted_data.decode("utf-8"), client_state["name"]
-                        )
+                        comando = Command.from_json(
+                            decrypted_data.decode("utf-8")
+                        )  # Convert to Command object
+                        print(f"comando: {comando}")
 
-                        enc_data, enc_iv, enc_tag = encrypt_data(
-                            response_data.encode(), client_state["key"]
-                        )
-                        data_exchange_packet = create_data_exchange(
-                            enc_data, enc_iv, enc_tag
-                        )
-                        return data_exchange_packet.to_json().encode()
+                        match comando.type:
+                            case CMD_TYPES.GET:
+                                return self.process(decrypted_data, client_id)
+
+                            case _:
+                                response_data = self.file_system.proccess_cmd(
+                                    decrypted_data.decode("utf-8"), client_state["name"]
+                                )
+
+                                enc_data, enc_iv, enc_tag = encrypt_data(
+                                    response_data.encode(), client_state["key"]
+                                )
+                                data_exchange_packet = create_data_exchange(
+                                    enc_data, enc_iv, enc_tag
+                                )
+                                return data_exchange_packet.to_json().encode()
 
                     except Exception as e:
                         print(f"Decryption error: {e}")
@@ -310,6 +328,26 @@ class Server:
                     print("Received ACK")
 
                     return create_ack().to_json().encode()
+                case PacketType.GET:
+                    id_thing = message.payload["id"]
+
+                    commando = message.payload["command"]
+
+                    key = self.file_system.get_thing(id_thing, client_state["name"])
+                    if key:
+
+                        data = create_get(id_thing, commando, key)
+                        enc_data, enc_iv, enc_tag = encrypt_data(
+                            data.to_json().encode(), client_state["key"]
+                        )
+                        data_exchange_packet = create_data_exchange(
+                            enc_data, enc_iv, enc_tag
+                        )
+
+                        return data_exchange_packet.to_json().encode()
+                    else:
+                        print("File not found")
+                        return create_error().to_json().encode()
 
                 case _:
                     print(f"Unknown message type: {message.type}")
@@ -318,54 +356,55 @@ class Server:
         return -1
 
 
-async def handle_echo(reader, writer, server_cert_path: str):
-    addr = writer.get_extra_info("socket")
-    server = Server(server_cert_path)
+async def handle_echo(reader, writer):
+    addr = writer.get_extra_info(
+        "peername"
+    )  # Using peername instead of socket for better readability
     client_id = id(writer)  # Use a unique ID for this client
 
     print(f"Connection from {addr} established.")
 
-    while True:
-        try:
+    try:
+        while not reader.at_eof():
             data = await reader.read(MAX_MSG_SIZE)
-            if not data or data[:1] == b"\n":
+            if not data:
                 break
 
-            response = server.process(data, client_id)
+            response = SERVER_INSTANCE.process(data, client_id)
             if response == -1:
                 print("Error processing message")
                 break
 
             if response:
-                writer.write(response)
-                await writer.drain()
+                try:
+                    writer.write(response)
+                    await writer.drain()
+                except ConnectionError as e:
+                    print(f"Connection error while writing: {e}")
+                    break
+    except Exception as e:
+        print(f"Error handling client: {e}")
+    finally:
+        try:
+            print(f"Connection from {addr} closed.")
+            writer.close()
+            if not writer.is_closing():
+                await writer.wait_closed()
         except Exception as e:
-            print(f"Error handling client: {e}")
-            break
-
-    print(f"Connection from {addr} closed.")
-    writer.close()
-    await writer.wait_closed()
+            print(f"Error during connection cleanup: {e}")
 
 
-def tcp_receiver(server_cert_path: str):
-    loop = asyncio.get_event_loop()
-    coro = asyncio.start_server(
-        lambda r, w: handle_echo(r, w, server_cert_path), SERVER_HOST, SERVER_PORT
-    )
-    server = loop.run_until_complete(coro)
+async def tcp_receiver(server_cert_path: str):
+    global SERVER_INSTANCE
+    SERVER_INSTANCE = Server(server_cert_path)
+
+    server = await asyncio.start_server(handle_echo, SERVER_HOST, SERVER_PORT)
 
     print(f"Serving on {server.sockets[0].getsockname()}")
     print("  (type ^C to finish)\n")
-    try:
-        loop.run_forever()
-    except KeyboardInterrupt:
-        pass
-    # Close the server
-    server.close()
-    loop.run_until_complete(server.wait_closed())
-    loop.close()
-    print("\nFINISHED!")
+
+    async with server:
+        await server.serve_forever()
 
 
 def main(args):
@@ -376,11 +415,12 @@ def main(args):
     server_cert_path = args[0]
     if not pathlib.Path(server_cert_path).is_file():
         print(f"File {server_cert_path} doesn't exist.")
-        return 0
+        return 1  # Return error code when file doesn't exist
 
     # Run the server
     try:
-        return asyncio.run(tcp_receiver(server_cert_path))
+        asyncio.run(tcp_receiver(server_cert_path))
+        return 0
     except KeyboardInterrupt:
         print("\nServer interrupted by user.")
         return 0
