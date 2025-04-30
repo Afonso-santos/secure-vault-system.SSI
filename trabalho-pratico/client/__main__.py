@@ -15,11 +15,17 @@ from application import (
     process_response,
     process_share_partII,
     process_get_partII,
+    process_group_add_user_partII,
 )
 from common.utils import get_userdata, json_to_dict
 from common.certificate_validator import CertificateValidator
 from common.commands_utils import CMD_TYPES, Command
-from handlers import handler_replace_command, handler_share_command
+from handlers import (
+    handler_replace_command,
+    handler_share_command,
+    handler_group_add_file_command,
+    handler_group_add_user_command
+)
 from common.Icarus_Protocol import (
     Packet,
     PacketType,
@@ -325,6 +331,9 @@ class Client:
 
                                 if comando.type == CMD_TYPES.GET:
                                     return self.process_message(decrypted_data)
+                                elif comando.type == CMD_TYPES.MULTI_GET:
+                                    return self.process_message(decrypted_data)
+
                                 elif comando.type == CMD_TYPES.READ:
                                     comando = Command.from_json(
                                         decrypted_data.decode("utf-8")
@@ -365,7 +374,7 @@ class Client:
                                             .to_json()
                                             .encode(),
                                         )
-
+                                    print("testing")
                                     # return self.target, create_ack().to_json().encode()
 
                                 process_response(
@@ -381,6 +390,65 @@ class Client:
                         except Exception as e:
                             print(f"❌ Decryption error: {e}")
                             return self.target, create_error().to_json().encode()
+                    case PacketType.MULTI_GET:
+
+                        if self.target == "server":
+                            encrypted_data, iv, auth_tag = encrypt_data(
+                                message,
+                                self.session_key_ca,
+                            )
+
+                            self.target = "ca"
+                            return (
+                                "ca",
+                                create_data_exchange(encrypted_data, iv, auth_tag)
+                                .to_json()
+                                .encode(),
+                            )
+                        elif self.target == "ca":
+                            self.target = "server"
+                           
+                            comando = Command.from_json(packet.payload.get("command"))
+                            if comando.type == CMD_TYPES.G_ADD:
+
+                                id_things = packet.payload.get("id")
+                                group_id = comando.payload.get("group_id")
+                                file_path = comando.payload.get("file_path")
+
+
+
+                                message_cmd = handler_group_add_file_command(
+                                    self, group_id, file_path, id_things
+                                )
+
+                                encrypted_data, iv, auth_tag = encrypt_data(
+                                    message_cmd.to_json().encode("utf-8"),
+                                    self.session_key_server,
+                                )
+
+                                return (
+                                    "server",
+                                    create_data_exchange(encrypted_data, iv, auth_tag)
+                                    .to_json()
+                                    .encode(),
+                                )
+                            elif comando.type == CMD_TYPES.G_ADD_USER:
+                                if self.target == "server":
+                                    message_cmd = process_group_add_user_partII(packet.payload)
+
+                                    encrypted_data, iv, auth_tag = encrypt_data(
+                                        message_cmd.encode(),
+                                        self.session_key_ca,
+                                    )
+                                    self.target = "ca"
+                                    return (
+                                        "ca",
+                                        create_data_exchange(encrypted_data, iv, auth_tag)
+                                        .to_json()
+                                        .encode(),
+                                    )
+                                elif self.target == "ca":
+                                    print("receive message of ca")
 
                     case PacketType.ACK:
                         print("✅ Received ACK")
@@ -479,6 +547,32 @@ class Client:
                                     )
 
                                     process_response(self, output, key)
+
+                                case CMD_TYPES.G_ADD_USER:
+                                    print("🔒 Received G_ADD_USER command")
+                                    
+                                    group_id = command.payload.get("group_id")
+                                    user_id = command.payload.get("user_id")
+                                    permissions = command.payload.get("permissions")
+                                    dict_key = command.payload.get("dict_key")
+
+                                    command_data = handler_group_add_user_command(
+                                        self, group_id, user_id, permissions, dict_key, key
+                                    )
+
+                                    encrypted_data, iv, auth_tag = encrypt_data(
+                                        command_data.to_json().encode("utf-8"),
+                                        self.session_key_server,
+                                    )
+                                    self.target = "server"
+                                    return (
+                                        "server",
+                                        create_data_exchange(
+                                            encrypted_data, iv, auth_tag
+                                        )
+                                        .to_json()
+                                        .encode(),
+                                    )
 
                         except Exception as e:
                             print(f"❌ Error processing GET command: {e}")

@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives import asymmetric
 from cryptography.hazmat.primitives import hashes
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from common.utils import get_userdata, json_to_dict
+from common.utils import get_userdata, json_to_dict, dict_to_json
 from common.certificate_validator import CertificateValidator
 from common.commands_utils import CMD_TYPES
 from common.commands_utils import Command
@@ -33,6 +33,7 @@ from common.Icarus_Protocol import (
     encrypt_data,
     decrypt_data,
     create_get,
+    create_multi_get,
 )
 
 # Constants
@@ -296,7 +297,6 @@ class Server:
                             encrypted_data, client_state["key"], iv, auth_tag
                         )
                         print(f"🔑 Decrypted data: {decrypted_data.decode('utf-8')}")
-                        print(f"📩 Decrypted data: {decrypted_data.decode('utf-8')}")
 
                         comando = Command.from_json(
                             decrypted_data.decode("utf-8")
@@ -305,6 +305,9 @@ class Server:
 
                         match comando.type:
                             case CMD_TYPES.GET:
+                                return self.process(decrypted_data, client_id)
+                            case CMD_TYPES.MULTI_GET:
+                                print("MULTI_GET")
                                 return self.process(decrypted_data, client_id)
 
                             case _:
@@ -345,6 +348,70 @@ class Server:
                         )
 
                         return data_exchange_packet.to_json().encode()
+                    else:
+                        print("File not found")
+                        return create_error().to_json().encode()
+                case PacketType.MULTI_GET:
+
+                    id_thing = message.payload["id"]
+
+                    commando = message.payload["command"]
+                    commando = Command.from_json(commando)
+                    things = self.file_system.get_thing(id_thing)
+                    things_dict = {}
+                    if things:
+                        if commando.type == CMD_TYPES.G_ADD:
+
+                            thing_dict = {member: None for member in things.members}
+
+                            thing_dict_json = dict_to_json(thing_dict)
+
+                            commando = Command.to_json(commando)
+                            data = create_multi_get(thing_dict_json, commando)
+                            enc_data, enc_iv, enc_tag = encrypt_data(
+                                data.to_json().encode(), client_state["key"]
+                            )
+                            data_exchange_packet = create_data_exchange(
+                                enc_data, enc_iv, enc_tag
+                            )
+
+                            return data_exchange_packet.to_json().encode()
+
+                        elif commando.type == CMD_TYPES.G_ADD_USER:
+
+                            for file_id in things.list_of_files:
+                                file = self.file_system.files.get(file_id)
+                                key = file.listed_users.get(client_state["name"])
+                                things_dict[file_id] = key
+
+
+                            if len(things_dict) == 0:
+                                data = self.file_system.proccess_cmd(
+                                    commando.to_json(), client_state["name"]
+                                )
+
+                                enc_data, enc_iv, enc_tag = encrypt_data(
+                                    data.encode(), client_state["key"]
+                                )
+                                print(f"data: {data}")
+                                data_exchange_packet = create_data_exchange(
+                                    enc_data, enc_iv, enc_tag
+                                )
+                                return data_exchange_packet.to_json().encode()
+
+                            else:
+                                things_dict_json = dict_to_json(things_dict)
+
+                                commando = Command.to_json(commando)
+                                data = create_multi_get(things_dict_json, commando)
+                                enc_data, enc_iv, enc_tag = encrypt_data(
+                                    data.to_json().encode(), client_state["key"]
+                                )
+                                data_exchange_packet = create_data_exchange(
+                                    enc_data, enc_iv, enc_tag
+                                )
+                                return data_exchange_packet.to_json().encode()
+
                     else:
                         print("File not found")
                         return create_error().to_json().encode()

@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives import asymmetric
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from common.utils import json_to_dict, dict_to_json
 from common.Icarus_Protocol import *
 from common.certificate_validator import CertificateValidator
 from certificate_authority.certificates_generator import create_certificates
@@ -258,7 +259,10 @@ class CertificateAuthority:
 
                         comando = Command.from_json(decrypted_data.decode("utf-8"))
 
-                        if comando.type == CMD_TYPES.GET:
+                        if (
+                            comando.type == CMD_TYPES.GET
+                            or comando.type == CMD_TYPES.MULTI_GET
+                        ):
                             print("Received GET command")
 
                             return self.process(decrypted_data, client_id)
@@ -303,11 +307,35 @@ class CertificateAuthority:
                     else:
                         print(f"Key not found for id: {id_thing}")
                         return create_error().to_json().encode()
+                case PacketType.MULTI_GET:
+                    
 
-                case _:
-                    print(f"Unknown message type: {message.type}")
-                    return create_error().to_json().encode()
+                    id_things = message.payload["id"]
 
+                    id_things = json_to_dict(id_things)
+
+
+                    for id_thing, key in id_things.items():
+                        key = self.key_catalog.get(id_thing)
+                        if key:
+                            key_pem = key.public_bytes(
+                                encoding=serialization.Encoding.PEM,
+                                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                            ).decode("utf-8")
+
+                            id_things[id_thing] = key_pem
+
+                    data = create_multi_get(id_things, message.payload["command"])
+                    enc_data, enc_iv, enc_tag = encrypt_data(
+                        data.to_json().encode(),
+                        client_state["key"],
+                    )
+                    data_exchange_packet = create_data_exchange(
+                        enc_data,
+                        enc_iv,
+                        enc_tag,
+                    )
+                    return data_exchange_packet.to_json().encode()
         return -1
 
     def save_to_disk(self, path):

@@ -1,14 +1,11 @@
 import os
 import json
-import uuid
-import shutil
-import base64
 from enum import Enum
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Set
 from abc import ABC, abstractmethod
 import hashlib
-
+from common.Icarus_Protocol import create_multi_get
 from common.commands_utils import (
     CMD_TYPES,
     Command,
@@ -21,6 +18,8 @@ from common.commands_utils import (
     create_group_create_response_command,
     create_group_delete_response_command,
     create_share_response_command,
+    create_group_add_user_response_command,
+    create_group_add_file_response_command,
 )
 
 from common.utils import dict_to_json, json_to_dict
@@ -42,39 +41,68 @@ class User:
         self.list_of_files: List[str] = []
         self.groups: List[str] = []
 
+    def add_file(self, file_id: str):
+        if file_id not in self.list_of_files:
+            self.list_of_files.append(file_id)
+
+    def remove_file(self, file_id: str):
+        if file_id in self.list_of_files:
+            self.list_of_files.remove(file_id)
+            return True
+        return False
+
+    def add_group(self, group_id: str):
+        if group_id not in self.groups:
+            self.groups.append(group_id)
+
+    def remove_group(self, group_id: str):
+        if group_id in self.groups:
+            self.groups.remove(group_id)
+            return True
+        return False
+
 
 class Group:
-    def __init__(self, group_id: str, owner_id: str):
+    def __init__(self, group_id: str, owner_id: str, group_name: str = None):
         self.group_id = group_id
+        self.group_name = group_name
         self.owner_id = owner_id
+        self.vault_path = None
         self.members: List[str] = []
+        self.list_of_files: List[str] = []
+
         # Dictionary mapping member_id to their permissions in this group
         self.member_permissions: Dict[str, Set[Permission]] = {}
-        self.created_at = datetime.now()
-        self.modified_at = datetime.now()
 
     def add_member(self, user_id: str, permissions: Set[Permission] = None):
         if user_id not in self.members:
             self.members.append(user_id)
             self.member_permissions[user_id] = permissions or set()
-            self.modified_at = datetime.now()
+
+    def add_file(self, file_id: str):
+        if file_id not in self.list_of_files:
+            self.list_of_files.append(file_id)
 
     def remove_member(self, user_id: str):
         if user_id in self.members:
             self.members.remove(user_id)
             if user_id in self.member_permissions:
                 del self.member_permissions[user_id]
-            self.modified_at = datetime.now()
+
 
     def set_member_permissions(self, user_id: str, permissions: Set[Permission]):
         if user_id in self.members:
             self.member_permissions[user_id] = permissions
-            self.modified_at = datetime.now()
             return True
         return False
 
     def get_member_permissions(self, user_id: str) -> Set[Permission]:
         return self.member_permissions.get(user_id, set())
+
+    def check_permission(self, user_id: str, permission: Permission) -> bool:
+        return user_id in self.members and permission in self.member_permissions.get(
+            user_id, set()
+        )
 
 
 class File:
@@ -107,18 +135,41 @@ class File:
         self.modified_at = modified_at
         self.last_changed = last_changed
 
+    def remove_user(self, user_id: str):
+        if user_id in self.listed_users:
+            del self.listed_users[user_id]
+            return True
+        return False
+
 
 class AccessControl:
     def __init__(self):
         # Direct permissions: user_id -> {file_id -> {permissions}}
         self.permissions: Dict[str, Dict[str, Set[Permission]]] = {}
+        # Group permissions: group_id -> {user_id {file_id -> {permissions}}}
+        self.group_acl: Dict[str, Dict[str, Dict[str, Set[Permission]]]] = {}
 
-    def add_permission(self, user_id: str, file_id: str, permission: Permission):
+    def create_group_acl(self, group_id: str):
+        if group_id not in self.group_acl:
+            self.group_acl[group_id] = {}
+
+    def add_group_permission(
+        self, group_id: str, user_id: str, file_id: str, permission: Set[Permission]
+    ):
+        if group_id not in self.group_acl:
+            self.group_acl[group_id] = {}
+        if user_id not in self.group_acl[group_id]:
+            self.group_acl[group_id][user_id] = {}
+        if file_id not in self.group_acl[group_id][user_id]:
+            self.group_acl[group_id][user_id][file_id] = set()
+        self.group_acl[group_id][user_id][file_id].update(permission)
+
+    def add_permission(self, user_id: str, file_id: str, permissions: Set[Permission]):
         if user_id not in self.permissions:
             self.permissions[user_id] = {}
         if file_id not in self.permissions[user_id]:
             self.permissions[user_id][file_id] = set()
-        self.permissions[user_id][file_id].add(permission)
+        self.permissions[user_id][file_id].update(permissions)
 
     def remove_permission(self, user_id: str, file_id: str, permission: Permission):
         if user_id in self.permissions and file_id in self.permissions[user_id]:
@@ -127,6 +178,19 @@ class AccessControl:
                 del self.permissions[user_id][file_id]
                 if not self.permissions[user_id]:
                     del self.permissions[user_id]
+
+    def remove_group_permission(
+        self, group_id: str, user_id: str, file_id: str, permission: Permission
+    ):
+        if group_id in self.group_acl and user_id in self.group_acl[group_id]:
+            if file_id in self.group_acl[group_id][user_id]:
+                self.group_acl[group_id][user_id][file_id].discard(permission)
+                if not self.group_acl[group_id][user_id][file_id]:
+                    del self.group_acl[group_id][user_id][file_id]
+                    if not self.group_acl[group_id][user_id]:
+                        del self.group_acl[group_id][user_id]
+                        if not self.group_acl[group_id]:
+                            del self.group_acl[group_id]
 
     def check_permission(
         self, user_id: str, file_id: str, permission: Permission
@@ -137,8 +201,32 @@ class AccessControl:
             and permission in self.permissions[user_id][file_id]
         )
 
+    def check_group_permission(
+        self, group_id: str, user_id: str, file_id: str, permission: Permission
+    ) -> bool:
+        return (
+            group_id in self.group_acl
+            and user_id in self.group_acl[group_id]
+            and file_id in self.group_acl[group_id][user_id]
+            and permission in self.group_acl[group_id][user_id][file_id]
+        )
+
     def get_permissions(self, user_id: str, file_id: str) -> Set[Permission]:
         return self.permissions.get(user_id, {}).get(file_id, set())
+
+    def has_permission(self, user_id: str, file_id: str, permission: str) -> bool:
+
+        if user_id in self.permissions:
+            if file_id in self.permissions[user_id]:
+                if permission in self.permissions[user_id][file_id]:
+                    return True
+
+        for group_id, user_permissions in self.group_acl.items():
+            if user_id in user_permissions:
+                if file_id in user_permissions[user_id]:
+                    if permission in user_permissions[user_id][file_id]:
+                        return True
+        return False
 
 
 class FileSystem:
@@ -217,6 +305,34 @@ class FileSystem:
                 case CMD_TYPES.SHARE:
                     print("Sharing file")
                     return self.share_file(cmd.payload, client_id)
+                case CMD_TYPES.G_ADD_USER:
+                    return self.add_user_to_group(cmd.payload, client_id)
+
+                case CMD_TYPES.G_ADD:
+
+                    if cmd.payload["dict_key"] is None:
+
+                        group_id = cmd.payload["group_id"]
+
+                        if group_id not in self.groups:
+                            return create_error_command("Group not found").to_json()
+
+                        group = self.groups.get(group_id)
+
+
+                        members_dict = {member: None for member in group.members}
+
+                        members_dict_json = dict_to_json(members_dict)
+
+                        return create_multi_get(
+                            members_dict_json,
+                            cmd.to_json(),
+                        ).to_json()
+
+                    else:
+                        return self.add_file_to_group(cmd.payload, client_id)
+                case CMD_TYPES.G_DELETE_USER:
+                    return self.remove_user_from_group(cmd.payload, client_id)
 
                 # case CMD_TYPES.LIST:
                 #     return self.list_files(client_id)
@@ -250,7 +366,7 @@ class FileSystem:
             print(f"Error processing command: {e}")
             return {"error": str(e)}
 
-    def get_thing(self, thing_id: str, client_id) -> Optional[User | Group | File]:
+    def get_thing(self, thing_id: str, client_id=None) -> Optional[User | Group | File]:
         """
         Get a user, group, or file by ID.
         """
@@ -269,7 +385,7 @@ class FileSystem:
         """
         Add a file to the file system with proper key management.
         """
-        print("Adding file numver: ", len(self.files))
+        print("Adding file number: ", len(self.files))
         file_id = "file_" + str(len(self.files) + 1)
         file_name = payload["file_name"]
         ciphercontent = payload["ciphercontent"]  # Base64 encoded encrypted content
@@ -294,9 +410,12 @@ class FileSystem:
         # Add the file to the file system
         self.files[file_id] = file
         self.users[client_id].list_of_files.append(file_id)
-        self.acess_control.add_permission(client_id, file_id, Permission.OWN)
-        self.acess_control.add_permission(client_id, file_id, Permission.READ)
-        self.acess_control.add_permission(client_id, file_id, Permission.WRITE)
+
+
+        self.acess_control.add_permission(
+            client_id, file_id, {Permission.OWN, Permission.READ, Permission.WRITE}
+        )
+
 
         file_data = ciphercontent + " " + file_hash + " " + signature
 
@@ -372,9 +491,36 @@ class FileSystem:
             return create_error_command("File not found").to_json()
 
         file = self.files[file_id]
+        user = self.users.get(client_id)
 
         # Check if client has read permission
-        if not self.acess_control.check_permission(client_id, file_id, Permission.READ):
+        print(f"self.acess_control.permissions: {self.acess_control.permissions}")
+        for user_id, file_permissions in self.acess_control.permissions.items():
+            print(f"user_id: {user_id}")
+            print(f"file_permissions: {file_permissions}")
+            for file_id, permissions in file_permissions.items():
+                print(f"file_id: {file_id}")
+                if file_id in file_permissions:
+                    print(f"file_permissions[file_id]: {file_permissions[file_id]}")
+                    if Permission.READ in file_permissions[file_id]:
+                        print(f"Permission granted to {user_id} for {file_id}")
+
+        print("....................................................................")
+        print(f"self.acess_control.group_acl: {self.acess_control.group_acl}")
+        for group_id, user_permissions in self.acess_control.group_acl.items():
+            print(f"group_id: {group_id}")
+            print(f"user_permissions: {user_permissions}")
+            for user_id, file_permissions in user_permissions.items():
+                print(f"user_id: {user_id}")
+                for file_id, permissions in file_permissions.items():
+                    print(f"file_id: {file_id}")
+                    if file_id in file_permissions:
+                        print(f"file_permissions[file_id]: {file_permissions[file_id]}")
+                        if Permission.READ in file_permissions[file_id]:
+                            print(f"Permission granted to {user_id} for {file_id}")
+        print("....................................................................")
+
+        if not self.acess_control.has_permission(client_id, file_id, Permission.READ):
             return create_error_command("Permission denied").to_json()
 
         file_path = file.path
@@ -413,17 +559,16 @@ class FileSystem:
         Create a group and add the user to it.
         """
         group_id = "group_" + str(len(self.groups) + 1)
+        group_name = payload["group_name"]
 
-        group = Group(group_id, client_id)
+        group = Group(group_id, client_id, group_name)
+        group.vault_path = os.path.join(PATH, group_name)
         group.add_member(client_id, {Permission.OWN, Permission.READ, Permission.WRITE})
 
         self.groups[group_id] = group
 
-        user = self.users[client_id]
-
-        user.groups.append(group_id)
-
         self.users[client_id].groups.append(group_id)
+        self.acess_control.create_group_acl(group_id)
 
         return create_group_create_response_command(group_id).to_json()
 
@@ -467,22 +612,147 @@ class FileSystem:
         if file_id not in self.files:
             return create_error_command("File not found").to_json()
 
-        # if user_id not in self.users:
-        #     return create_error_command("User not found").to_json()
+        file = self.files[file_id]
 
-        if file_id in self.files:
+        file.add_user(user_id, file_key)
 
+        # Set permissions for the user
+        print(f"Adding user {user_id} to file {file_id} with permission {permissions}")
+        self.acess_control.add_permission(user_id, file_id, {Permission(permissions)})
+
+        return create_share_response_command(
+            f"File {file_id} shared with {user_id} successfully"
+        ).to_json()
+
+    def add_user_to_group(self, payload, client_id: str) -> dict:
+        """
+        Add a user to a group.
+        """
+
+        group_id = payload["group_id"]
+        user_id = payload["user_id"]
+        permission = payload["permissions"]
+
+
+        file_key = payload["dict_key"]  # RSA-encrypted AES key
+        file_key = json_to_dict(file_key) if file_key else {}
+
+
+        if group_id not in self.groups:
+            return create_error_command("Group not found").to_json()
+
+        group = self.groups[group_id]
+
+        # Check if client is the owner of the group
+        if group.owner_id != client_id:
+            return create_error_command("Permission denied").to_json()
+
+
+        # Add the user to the group
+        group.add_member(user_id, {Permission(permission)})
+
+        print(f"Adding user {user_id} to group {group_id} with permission {permission}")
+        file_id = None
+        for file_id , file_key in file_key.items():
             file = self.files[file_id]
-
             file.add_user(user_id, file_key)
 
-            # Set permissions for the user
-            self.acess_control.add_permission(user_id, file_id, Permission(permissions))
 
-            return create_share_response_command(
-                f"File {file_id} shared with {user_id} successfully"
-            ).to_json()
 
+        # Set permissions for the user
+        self.acess_control.add_group_permission(
+            group_id, user_id, file_id, {Permission(permission)}
+        )
+
+        return create_group_add_user_response_command(
+            f"User {user_id} with {permission} added to group {group_id} successfully"
+        ).to_json()
+
+    def add_file_to_group(self, payload, client_id: str) -> dict:
+        """
+        Add a file to a group.
+        """
+
+        group_id = payload["group_id"]
+        file_id = "file_" + str(len(self.files) + 1)
+        file_name = payload["file_name"]
+        ciphercontent = payload["ciphercontent"]  # Base64 encoded encrypted content
+        encrypt_key = payload["dict_key"]  # RSA-encrypted AES key
+        file_hash = payload["file_hash"]  # Hash of original file
+        signature = payload["signature"]  # Signature of file hash
+
+        if group_id not in self.groups:
+            return create_error_command("Group not found").to_json()
+
+        group = self.groups.get(group_id)
+
+        if not group.check_permission(client_id, Permission.WRITE):
+            return create_error_command("Permission denied").to_json()
+
+        file = File(
+            file_id=file_id,
+            file_name=file_name,
+            owner_id=client_id,
+            last_changed=client_id,
+        )
+        self.files[file_id] = file
+
+        encrypt_key = json_to_dict(encrypt_key)
+        for user_id, key in encrypt_key.items():
+            if file.listed_users is not user_id:
+                file.add_user(user_id, key)
+
+
+        path_file = os.path.join(group.vault_path, file_name)
+        file.set_path(path_file)
+
+        self.files[file_id] = file
+        self.groups[group_id].list_of_files.append(file_id)
+
+        for user_id, permissons in group.member_permissions.items():
+            self.acess_control.add_group_permission(
+                group_id, user_id, file_id, permissons
+            )
+
+        file_data = ciphercontent + " " + file_hash + " " + signature
+        if -1 == write_file(file.path, file_data):
+            return create_error_command("Error writing file").to_json()
+
+        return create_group_add_file_response_command(
+            f"File {file_id} added to group {group_id} successfully"
+        ).to_json()
+
+
+    def remove_user_from_group(self, payload, client_id: str) -> dict:
+        """
+        Remove a user from a group.
+        """
+        group_id = payload["group_id"]
+        user_id = payload["user_id"]
+
+        if group_id not in self.groups:
+            return create_error_command("Group not found").to_json()
+
+        group = self.groups.get(group_id)
+
+        # Check if client is the owner of the group
+        if group.owner_id != client_id:
+            return create_error_command("Permission denied").to_json()
+
+        # Remove the user from the group
+        group.remove_member(user_id)
+
+        # Remove the user's permissions for all files in the group
+        for file_id in group.list_of_files:
+            self.acess_control.remove_group_permission(
+                group_id, user_id, file_id, Permission.READ
+            )
+            self.files[file_id].remove_user(user_id)
+
+
+        return create_group_delete_response_command(
+            f"User {user_id} removed from group {group_id} successfully"
+        ).to_json()
 
 def write_file(file_path: str, data: str) -> None:
     """

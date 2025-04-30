@@ -5,8 +5,13 @@ from typing import Dict, Any
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from common.utils import (
+    dict_to_json,
+    json_to_dict,
+)
 from common.Icarus_Protocol import (
     create_get,
+    create_multi_get,
 )
 from pprint import (
     pprint_add,
@@ -16,16 +21,23 @@ from pprint import (
     pprint_group_create,
     pprint_group_delete,
     pprint_share,
+    pprint_group_add_user,
+    pprint_group_add_file,
 )
 from common.commands_utils import Command, CMD_TYPES, create_read_response_command
 from handlers import (
     create_replace,
     create_share,
+    create_group_add_file,
+    create_group_add_user,
     handler_add_command,
     handler_details_command,
     handler_read_command,
     handler_group_create_command,
     handler_group_delete_command,
+    handler_group_add_user_command,
+    handler_group_add_file_command,
+    handler_group_delete_user_command,
 )
 
 
@@ -153,15 +165,59 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
                 command_data = handler_group_delete_command(group_id)
 
             case "group add-user":
-                pass
+                # group add-user <group-id> <user-id> <permissions>
+                if len(args) != 3:
+                    return 0
+                group_id = args[0]
+                user_id = args[1]
+                permission = args[2]
+                
+
+                if permission not in ["read", "write", "w", "r"]:
+                    print(f"Permission {permission} is not valid.")
+                    return 0
+
+
+
+                command_data = create_group_add_user(group_id, user_id, permission)
+                command_data = Command.to_json(command_data)
+                command_data = create_multi_get(group_id, command_data)
 
             case "group delete-user":
+                # group delete-user <group-id> <user-id>
+                if len(args) != 2:
+                    return 0
+                group_id = args[0]
+                user_id = args[1]
+
+                command_data = handler_group_delete_user_command(group_id, user_id)
+
                 pass
             case "group list":
                 pass
 
             case "group add":
-                pass
+                # group add <group-id> <file-path>
+                if len(args) != 2:
+                    return 0
+                group_id = args[0]
+                file_path = args[1]
+                # Check if the file exists
+                if not os.path.exists(file_path):
+                    print(f"File {file_path} does not exist.")
+                    return 0
+                # Check if the file is a valid file
+                if not os.path.isfile(file_path):
+                    print(f"{file_path} is not a valid file.")
+                    return 0
+                
+
+                command_data = create_group_add_file(group_id, file_path)
+
+                command_data = Command.to_json(command_data)
+
+                command_data = create_multi_get(group_id, command_data)
+
             case "exit":
                 pass
 
@@ -208,6 +264,13 @@ def process_response(client, response: str, key=None) -> None:
             print("........................................")
             pprint_share(response.payload)
 
+        case CMD_TYPES.G_ADD_USER:
+            print("........................................")
+            pprint_group_add_user(response.payload)
+
+        case CMD_TYPES.G_ADD:
+            print("........................................")
+            pprint_group_add_file(response.payload)
         case _:
             print("Unknown response type")
 
@@ -245,3 +308,27 @@ def process_get_partII(comando: dict, last_changed: str):
     command_data = create_get(last_changed, command_data)
 
     return command_data.to_json()
+
+
+def process_group_add_user_partII(comando: dict):
+    """
+    Process the group add user command
+    """
+
+    dict_keys = comando["id"]
+    dict_keys_json = dict_to_json(dict_keys)
+
+    comando =Command.from_json(comando["command"])
+
+
+    commando_data = create_group_add_user(
+        comando.payload["group_id"], comando.payload["user_id"], comando.payload["permissions"], dict_keys_json
+    )
+
+    commando_data = Command.to_json(commando_data)
+    commando_data = create_get(
+        comando.payload["user_id"], commando_data
+    )
+    
+    return commando_data.to_json()
+

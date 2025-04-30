@@ -173,8 +173,6 @@ def handler_share_command(
 
     file_key = base64.b64decode(file_key)
 
-    print(f"---file_key: {file_key}")
-    print(f"---client_key: {client_key}")
 
     file_key = client.private_key.decrypt(
         file_key,
@@ -195,3 +193,118 @@ def handler_share_command(
     )
 
     return create_share_command(file_id, user_id, permissions, file_key_encrypted)
+
+
+def handler_group_add_user_command(
+    client, group_id: str, user_id: str, permissions: str,dict_keys: str, key
+):
+    """
+    Create a command to add a user to a group.
+    """
+
+    dict_keys = json_to_dict(dict_keys)
+
+    for file_id ,file_key in dict_keys.items():
+
+        encrypted_file_key = base64.b64decode(file_key)
+        # Decrypt the file key with the client's private key
+        file_key_decrypt = decrypt_key(
+            encrypted_file_key,
+            client.private_key
+        )
+
+        # Encrypt the file key with the user's public key
+
+        file_key_encrypted = encrypt_key(
+            file_key_decrypt,
+            key.encode()
+        )
+
+
+        dict_keys[file_id] = base64.b64encode(file_key_encrypted).decode()
+
+
+    dict_keys_json = dict_to_json(dict_keys)
+
+    return create_group_add_user_command(group_id, user_id, permissions, dict_keys_json)
+
+
+def handler_group_add_user_response_command(msg: str):
+    """
+    Create a command to respond to a group add user request.
+    """
+    return create_group_add_user_response_command(msg)
+
+
+def handler_group_add_file_command(
+    client, group_id: str, file_path: str, dict_key: dict
+):
+    """
+    Create a command to add a file to a group.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            # Read the file content
+            file_content = f.read()
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return None
+
+    # Encrypt the file with AES
+    ciphertext, key = encrypt_file(file_content)
+
+    # Get file name from path
+    file_name = os.path.basename(file_path)
+
+    # Hash the original file
+    file_hash = hash_file(file_content)
+
+    for user_id, user_key in dict_key.items():
+        # Load the user's public key
+        user_key = load_pem_public_key(user_key.encode())
+
+        # Encrypt the AES key with user's public key
+        encrypted_key = encrypt_key(key, user_key)
+
+        dict_key[user_id] = base64.b64encode(encrypted_key).decode()
+
+    dict_key_json = dict_to_json(dict_key)
+    # Sign the file hash
+    signature = sign_data(file_hash, client.private_key)
+
+    return create_group_add_file_command(
+        group_id, file_name, ciphertext, dict_key_json, file_hash, signature
+    )
+
+
+def create_group_add_file(group_id: str, file_path: str) -> Command:
+    """
+    Create a command to add a file to a group.
+    """
+    payload = {
+        "group_id": group_id,
+        "file_path": file_path,
+    }
+    return create_command(CMD_TYPES.G_ADD, payload)
+
+
+def create_group_add_user(group_id: str, user_id: str, permissions: str, dict_key:str =None) -> Command:
+    """
+    Create a command to add a user to a group.
+    """
+    payload = {
+        "group_id": group_id,
+        "user_id": user_id,
+        "permissions": permissions,
+        "dict_key": dict_key,
+    }
+    return create_command(CMD_TYPES.G_ADD_USER, payload)
+
+
+def handler_group_delete_user_command(
+    group_id: str, user_id: str
+):
+    """
+    Create a command to delete a user from a group.
+    """
+    return create_group_delete_user_command(group_id, user_id)

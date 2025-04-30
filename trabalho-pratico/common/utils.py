@@ -108,9 +108,13 @@ def encrypt_key(file_key, client_key) -> bytes:
     return cipherkey
 
 
-def decrypt_key(encrypted_key: bytes, rsa_key: bytes) -> bytes:
+def decrypt_key(encrypted_key: bytes, rsa_key) -> bytes:
     """Decrypt a key using RSA private key"""
-    private_key = serialization.load_pem_private_key(rsa_key, password=None)
+    if isinstance(rsa_key, bytes):
+        private_key = serialization.load_pem_private_key(rsa_key, password=None)
+    else:
+        private_key = rsa_key  # Already a key object
+
     plaintext = private_key.decrypt(
         encrypted_key,
         padding.OAEP(
@@ -120,7 +124,6 @@ def decrypt_key(encrypted_key: bytes, rsa_key: bytes) -> bytes:
         ),
     )
     return plaintext
-
 
 def dict_to_json(data: dict) -> str:
     """Convert a dictionary to a JSON string"""

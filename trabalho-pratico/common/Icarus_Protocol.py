@@ -22,6 +22,7 @@ class PacketType(enum.Enum):
     ERROR = 10
 
     GET = 11
+    MULTI_GET = 12
 
 
 class Packet:
@@ -137,6 +138,16 @@ def create_get(id: str, command: str, key=None) -> Packet:
         "command": command,
     }
     return create_packet(PacketType.GET, payload)
+
+
+def create_multi_get(id, command: str) -> Packet:
+    """Create a GET packet"""
+
+    payload = {
+        "id": id,
+        "command": command,
+    }
+    return create_packet(PacketType.MULTI_GET, payload)
 
 
 def create_error() -> Packet:

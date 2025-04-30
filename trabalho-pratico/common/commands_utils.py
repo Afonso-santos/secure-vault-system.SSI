@@ -7,6 +7,8 @@ class CMD_TYPES(Enum):
     """Command types for the Command class."""
 
     GET = "GET"
+    MULTI_GET = "MULTI_GET"
+
     PUT = "PUT"
     ERROR = "ERROR"
 
@@ -199,3 +201,58 @@ def create_share_response_command(msg: str) -> Command:
     """Create a command to respond to a share file request."""
     payload = {"msg": msg}
     return create_command(CMD_TYPES.SHARE, payload)
+
+
+def create_group_add_user_command(
+    group_id: str, user_id: str, permission: str, file_key: str = None
+) -> Command:
+    """Create a command to add a user to a group."""
+    payload = {
+        "group_id": group_id,
+        "user_id": user_id,
+        "permissions": permission,
+        "dict_key": file_key,
+    }
+    return create_command(CMD_TYPES.G_ADD_USER, payload)
+
+
+def create_group_add_user_response_command(msg: str) -> Command:
+    """Create a command to respond to a group add user request."""
+    payload = {"msg": msg}
+    return create_command(CMD_TYPES.G_ADD_USER, payload)
+
+
+def create_group_add_file_command(
+    group_id: str,
+    file_name: str,
+    ciphercontent: bytes,
+    dict_key: str,
+    file_hash: bytes,
+    signature: bytes,
+) -> Command:
+    """Create a command to add a file to a group."""
+    payload = {
+        "group_id": group_id,
+        "file_name": base64.b64encode(file_name.encode()).decode(),
+        "ciphercontent": base64.b64encode(ciphercontent).decode(),
+        "dict_key": dict_key,
+        "file_hash": base64.b64encode(file_hash).decode(),
+        "signature": base64.b64encode(signature).decode(),
+    }
+    return create_command(CMD_TYPES.G_ADD, payload)
+
+
+def create_group_add_file_response_command(file_id: str) -> Command:
+    payload = {"file_id": file_id}
+    return create_command(CMD_TYPES.G_ADD, payload)
+
+
+def create_group_delete_user_command(
+    group_id:str , user_id:str
+)-> Command:
+    """Create a command to delete a user from a group."""
+    payload = {
+        "group_id": group_id,
+        "user_id": user_id,
+    }
+    return create_command(CMD_TYPES.G_DELETE_USER, payload)

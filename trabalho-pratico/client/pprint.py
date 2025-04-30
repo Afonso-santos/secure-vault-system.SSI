@@ -65,34 +65,25 @@ def pprint_read(client, payload: dict, public_key) -> None:
         ),
     )
 
-    print(f"public key: {public_key}")
-
     # Optional: Verify the signature
     try:
-        if key is None:
-            client.public_key.verify(
-                signature,
-                file_hash,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH,
-                ),
-                hashes.SHA256(),
-            )
+        if public_key:
+            pubkey_obj = serialization.load_pem_public_key(public_key.encode())
+
         else:
-            public_key = serialization.load_pem_public_key(
-                public_key.encode(), backend=None
-            )
-            public_key.verify(
-                signature,
-                file_hash,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH,
-                ),
-                hashes.SHA256(),
-            )
-            print("✅ Signature verification successful")
+            pubkey_obj = client.public_key
+
+        pubkey_obj.verify(
+            signature,
+            file_hash,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH,
+            ),
+            hashes.SHA256(),
+        )
+        print("✅ Signature verification successful")
+
     except Exception as e:
         print(f"❌ Signature verification failed: {e}")
 
@@ -124,10 +115,28 @@ def pprint_group_delete(payload: dict) -> None:
     print("------------------------------")
 
 
+def pprint_group_add_user(payload: dict) -> None:
+    """
+    Pretty print the group add user command response
+    """
+    print("👥 User added to group successfully")
+    print(f"👥 {payload['msg']}")
+    print("------------------------------")
+
+
 def pprint_share(payload: dict) -> None:
     """
     Pretty print the share command response
     """
     print("📄 File shared successfully")
     print(f"Permissions: {payload['msg']}")
+    print("------------------------------")
+
+
+def pprint_group_add_file(payload: dict) -> None:
+    """
+    Pretty print the group add file command response
+    """
+    print("👥 📄 File added to group successfully")
+    print(f"File ID: {payload['file_id']}")
     print("------------------------------")
