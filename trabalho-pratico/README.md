@@ -165,7 +165,7 @@ Este comando permite partilhar um ficheiro do cofre pessoal com outro utilizador
 
     Importa referir que cada ficheiro possui um dicionário onde são armazenadas as chaves simétricas cifradas, associadas a cada utilizador autorizado. Dessa forma, cada utilizador tem acesso apenas à versão da chave cifrada com a sua própria chave pública, garantindo assim a confidencialidade e o controlo de acessos.
 
-    ![alt text](image-1.png)
+    ![alt text](report/image-4.png)
 
 - ```replace <file-id> <file-path>```
     Este comando substitui o conteúdo de um ficheiro existente por um novo ficheiro indicado em <file-path>. Esta operação só pode ser realizada por utilizadores que possuam permissões de escrita sobre o ficheiro em questão.
@@ -176,7 +176,7 @@ Este comando permite partilhar um ficheiro do cofre pessoal com outro utilizador
 
     Optámos por seguir esta abordagem porque, num cenário em que o ficheiro é partilhado com múltiplos utilizadores, criar uma nova chave e substituir simplesmente o conteúdo original faria com que todos os utilizadores perdessem o acesso, uma vez que já não teriam a nova chave. Ao reutilizar a chave existente, evitamos a necessidade de atualizar as chaves cifradas de todos os utilizadores na tabela ACL, mantendo o acesso intacto e o sistema mais eficiente.
 
-![alt text](image-2.png)
+![alt text](report/image-5.png)
 
 
 
@@ -189,7 +189,7 @@ Embora o comando de leitura (read) possa aparentar ser simples, o seu funcioname
 
     Este mecanismo proporciona um nível adicional de segurança, permitindo aos clientes verificar tanto a proveniência como a integridade dos dados que estão a consultar.
 
-    ![alt text](image-3.png)
+    ![alt text](report/image-6.png)
 
 -  ```group add-user <group-id> <user-id> <permissions> ```
     Se o grupo já contém ficheiros partilhados, o novo utilizador precisa de obter acesso seguro às chaves de cifragem desses ficheiros. Como estes são cifrados com chaves simétricas (armazenadas cifradas com a chave pública de cada utilizador autorizado), é necessário seguir os seguintes passos:
@@ -205,7 +205,7 @@ Embora o comando de leitura (read) possa aparentar ser simples, o seu funcioname
     Este processo garante a confidencialidade das chaves e o controlo eficaz de acessos dentro do grupo, mantendo a segurança da partilha de ficheiros.
 
 
-    ![alt text](image-4.png)
+    ![alt text](report/image-7.png)
 
 
 - ```group add <group-id> <file-path>```
@@ -216,7 +216,7 @@ Embora o comando de leitura (read) possa aparentar ser simples, o seu funcioname
     Este processo garante que apenas os membros autorizados conseguem aceder ao ficheiro, mantendo a confidencialidade, integridade e controlo de acessos dentro do grupo
 
 
-![alt text](image-5.png)
+![alt text](report/image-8.png)
 
 - Outros comandos restantes implementados, tais como:
 
