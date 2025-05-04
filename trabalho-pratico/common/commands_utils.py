@@ -247,12 +247,37 @@ def create_group_add_file_response_command(file_id: str) -> Command:
     return create_command(CMD_TYPES.G_ADD, payload)
 
 
-def create_group_delete_user_command(
-    group_id:str , user_id:str
-)-> Command:
+def create_group_delete_user_command(group_id: str, user_id: str) -> Command:
     """Create a command to delete a user from a group."""
     payload = {
         "group_id": group_id,
         "user_id": user_id,
     }
     return create_command(CMD_TYPES.G_DELETE_USER, payload)
+
+
+def create_delete_command(file_id: str) -> Command:
+    """Create a command to delete a file."""
+    payload = {"file_id": file_id}
+    return create_command(CMD_TYPES.DELETE, payload)
+
+
+def create_delete_response_command(msg: str) -> Command:
+    """Create a command to respond to a delete file request."""
+    payload = {"msg": msg}
+    return create_command(CMD_TYPES.DELETE, payload)
+
+
+def create_revoke_command(file_id: str, user_id: str) -> Command:
+    """Create a command to revoke a file from a user."""
+    payload = {
+        "file_id": file_id,
+        "user_id": user_id,
+    }
+    return create_command(CMD_TYPES.REVOKE, payload)
+
+
+def create_revoke_response_command(msg: str) -> Command:
+    """Create a command to respond to a revoke file request."""
+    payload = {"msg": msg}
+    return create_command(CMD_TYPES.REVOKE, payload)

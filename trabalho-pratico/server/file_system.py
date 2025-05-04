@@ -10,6 +10,7 @@ from common.commands_utils import (
     CMD_TYPES,
     Command,
     create_add_response_command,
+    create_delete_response_command,
     create_details_response_command,
     create_error_command,
     create_read_response_command,
@@ -17,6 +18,7 @@ from common.commands_utils import (
     create_details_response_command,
     create_group_create_response_command,
     create_group_delete_response_command,
+    create_revoke_response_command,
     create_share_response_command,
     create_group_add_user_response_command,
     create_group_add_file_response_command,
@@ -88,7 +90,6 @@ class Group:
             self.members.remove(user_id)
             if user_id in self.member_permissions:
                 del self.member_permissions[user_id]
-
 
     def set_member_permissions(self, user_id: str, permissions: Set[Permission]):
         if user_id in self.members:
@@ -232,10 +233,13 @@ class AccessControl:
 class FileSystem:
     def __init__(self):
         # user_id -> User
+        self.count_users = 1
         self.users: dict[str, User] = {}
         # group_id -> Group
+        self.count_groups = 1
         self.groups: dict[str, Group] = {}
         # file_id -> File
+        self.count_files = 1
         self.files: dict[str, File] = {}
         self.acess_control = AccessControl()
 
@@ -302,6 +306,10 @@ class FileSystem:
                     print("Deleting group")
                     return self.delete_group(cmd.payload, client_id)
 
+                case CMD_TYPES.REVOKE:
+                    print("Revoking file access")
+                    return self.revoke_user(cmd.payload, client_id)
+
                 case CMD_TYPES.SHARE:
                     print("Sharing file")
                     return self.share_file(cmd.payload, client_id)
@@ -319,7 +327,6 @@ class FileSystem:
 
                         group = self.groups.get(group_id)
 
-
                         members_dict = {member: None for member in group.members}
 
                         members_dict_json = dict_to_json(members_dict)
@@ -333,19 +340,15 @@ class FileSystem:
                         return self.add_file_to_group(cmd.payload, client_id)
                 case CMD_TYPES.G_DELETE_USER:
                     return self.remove_user_from_group(cmd.payload, client_id)
-
+                case CMD_TYPES.DELETE:
+                    print("Deleting file")
+                    return self.delete_file(cmd.payload, client_id)
                 # case CMD_TYPES.LIST:
                 #     return self.list_files(client_id)
-                # case CMD_TYPES.SHARE:
-                #     return self.share_file(decrypt_data.payload, client_id)
-                # case CMD_TYPES.DELETE:
-                #     return self.delete_file(decrypt_data.payload, client_id)
                 # case CMD_TYPES.REPLACE:
                 #     return self.replace_file(decrypt_data.payload, client_id)
                 # case CMD_TYPES.DETAILS:
                 #     return self.file_details(decrypt_data.payload, client_id)
-                # case CMD_TYPES.REVOKE:
-                #     return self.revoke_file_access(decrypt_data.payload, client_id)
                 # case CMD_TYPES.G_CREATE:
                 #     return self.create_group(decrypt_data.payload, client_id)
                 # case CMD_TYPES.G_DELETE:
@@ -386,7 +389,8 @@ class FileSystem:
         Add a file to the file system with proper key management.
         """
         print("Adding file number: ", len(self.files))
-        file_id = "file_" + str(len(self.files) + 1)
+        file_id = "file_"+ str(self.count_files)
+        self.count_files += 1
         file_name = payload["file_name"]
         ciphercontent = payload["ciphercontent"]  # Base64 encoded encrypted content
         encrypt_key = payload["encrypt_key"]  # RSA-encrypted AES key
@@ -411,11 +415,9 @@ class FileSystem:
         self.files[file_id] = file
         self.users[client_id].list_of_files.append(file_id)
 
-
         self.acess_control.add_permission(
             client_id, file_id, {Permission.OWN, Permission.READ, Permission.WRITE}
         )
-
 
         file_data = ciphercontent + " " + file_hash + " " + signature
 
@@ -558,7 +560,8 @@ class FileSystem:
         """
         Create a group and add the user to it.
         """
-        group_id = "group_" + str(len(self.groups) + 1)
+        group_id = "group_" + str(self.count_groups)
+        self.count_groups += 1
         group_name = payload["group_name"]
 
         group = Group(group_id, client_id, group_name)
@@ -633,10 +636,8 @@ class FileSystem:
         user_id = payload["user_id"]
         permission = payload["permissions"]
 
-
         file_key = payload["dict_key"]  # RSA-encrypted AES key
         file_key = json_to_dict(file_key) if file_key else {}
-
 
         if group_id not in self.groups:
             return create_error_command("Group not found").to_json()
@@ -647,17 +648,14 @@ class FileSystem:
         if group.owner_id != client_id:
             return create_error_command("Permission denied").to_json()
 
-
         # Add the user to the group
         group.add_member(user_id, {Permission(permission)})
 
         print(f"Adding user {user_id} to group {group_id} with permission {permission}")
         file_id = None
-        for file_id , file_key in file_key.items():
+        for file_id, file_key in file_key.items():
             file = self.files[file_id]
             file.add_user(user_id, file_key)
-
-
 
         # Set permissions for the user
         self.acess_control.add_group_permission(
@@ -674,7 +672,8 @@ class FileSystem:
         """
 
         group_id = payload["group_id"]
-        file_id = "file_" + str(len(self.files) + 1)
+        file_id = "file_" + str(self.count_files)
+        self.count_files += 1
         file_name = payload["file_name"]
         ciphercontent = payload["ciphercontent"]  # Base64 encoded encrypted content
         encrypt_key = payload["dict_key"]  # RSA-encrypted AES key
@@ -702,7 +701,6 @@ class FileSystem:
             if file.listed_users is not user_id:
                 file.add_user(user_id, key)
 
-
         path_file = os.path.join(group.vault_path, file_name)
         file.set_path(path_file)
 
@@ -721,7 +719,6 @@ class FileSystem:
         return create_group_add_file_response_command(
             f"File {file_id} added to group {group_id} successfully"
         ).to_json()
-
 
     def remove_user_from_group(self, payload, client_id: str) -> dict:
         """
@@ -749,10 +746,173 @@ class FileSystem:
             )
             self.files[file_id].remove_user(user_id)
 
-
         return create_group_delete_response_command(
             f"User {user_id} removed from group {group_id} successfully"
         ).to_json()
+
+    def delete_file(self, payload, client_id: str) -> dict:
+        """
+        Delete a file from the file system.
+        Three cases:
+        1. User's personal file - completely removed from system
+        2. Group file where user is owner/creator - completely removed from system
+        3. Shared file - user loses access but file remains in system
+        """
+        file_id = payload["file_id"]
+
+        if file_id not in self.files:
+            return create_error_command("File not found").to_json()
+
+        file = self.files[file_id]
+
+        # Check if it's a personal file (user is the owner)
+        if file.owner_id == client_id:
+            # Delete the file entirely
+            try:
+                if os.path.exists(file.path):
+                    os.remove(file.path)
+
+                # Remove file from all users' lists
+                for user in self.users.values():
+                    user.remove_file(file_id)
+
+                # Remove all permissions for this file
+                for user_id in list(self.acess_control.permissions.keys()):
+                    if (
+                        user_id in self.acess_control.permissions
+                        and file_id in self.acess_control.permissions[user_id]
+                    ):
+                        self.acess_control.permissions[user_id].pop(file_id, None)
+
+                # Remove from groups if it's part of any
+                for group in self.groups.values():
+                    if file_id in group.list_of_files:
+                        group.list_of_files.remove(file_id)
+
+                # Remove file from system
+                del self.files[file_id]
+                return create_delete_response_command(
+                    f"File {file_id} deleted successfully"
+                ).to_json()
+
+            except Exception as e:
+                return create_error_command(f"Error deleting file: {str(e)}").to_json()
+
+        # Check if file belongs to a group where user is owner/creator
+        for group_id, group in self.groups.items():
+            if file_id in group.list_of_files and group.owner_id == client_id:
+                # Delete the file entirely
+                try:
+                    if os.path.exists(file.path):
+                        os.remove(file.path)
+
+                    group.list_of_files.remove(file_id)
+
+                    # Remove file from all users' lists and permissions
+                    for user in self.users.values():
+                        user.remove_file(file_id)
+
+                    # Remove group permissions for this file
+                    for g_id in list(self.acess_control.group_acl.keys()):
+                        for u_id in list(
+                            self.acess_control.group_acl.get(g_id, {}).keys()
+                        ):
+                            if file_id in self.acess_control.group_acl.get(
+                                g_id, {}
+                            ).get(u_id, {}):
+                                self.acess_control.group_acl[g_id][u_id].pop(
+                                    file_id, None
+                                )
+
+                    # Remove individual permissions for this file
+                    for user_id in list(self.acess_control.permissions.keys()):
+                        if (
+                            user_id in self.acess_control.permissions
+                            and file_id in self.acess_control.permissions[user_id]
+                        ):
+                            self.acess_control.permissions[user_id].pop(file_id, None)
+
+                    # Remove file from system
+                    del self.files[file_id]
+                    return create_delete_response_command(
+                        f"File {file_id} deleted from group {group_id} successfully"
+                    ).to_json()
+                except Exception as e:
+                    return create_error_command(
+                        f"Error deleting file: {str(e)}"
+                    ).to_json()
+
+        # If we get here, user is not the owner, so just remove their access
+        if self.acess_control.has_permission(client_id, file_id, Permission.READ):
+            # Remove user's access to the file
+            self.acess_control.remove_permission(client_id, file_id, Permission.READ)
+            self.acess_control.remove_permission(client_id, file_id, Permission.WRITE)
+            self.acess_control.remove_permission(client_id, file_id, Permission.OWN)
+
+            # Remove user's access from group permissions if applicable
+            for group_id in list(self.acess_control.group_acl.keys()):
+                if client_id in self.acess_control.group_acl.get(group_id, {}):
+                    if file_id in self.acess_control.group_acl[group_id][client_id]:
+                        self.acess_control.group_acl[group_id][client_id].pop(
+                            file_id, None
+                        )
+
+            # Remove file key from user's listed_users in the File
+            file.remove_user(client_id)
+
+            # Remove from user's list of files
+            self.users[client_id].remove_file(file_id)
+
+            return create_delete_response_command(
+                f"Access to file {file_id} removed successfully"
+            ).to_json()
+
+        return create_error_command("Permission denied").to_json()
+
+    def revoke_user(self, payload, client_id: str) -> dict:
+        """
+        Revoke a user's access to a file.
+        Only the file owner can revoke access, and the file must be in their personal vault.
+        """
+        file_id = payload["file_id"]
+        user_id = payload["user_id"]
+
+        if file_id not in self.files:
+            return create_error_command("File not found").to_json()
+
+        file = self.files[file_id]
+
+        # Check if client is the owner of the file
+        if file.owner_id != client_id:
+            return create_error_command("Permission denied").to_json()
+
+        # Check if file is in the user's personal vault (not in a group)
+        if not file.path or not file.path.startswith(os.path.join(PATH, client_id)):
+            return create_error_command(
+                "Operation only allowed for files in personal vault"
+            ).to_json()
+
+        # Check if the user has access to the file
+        if user_id not in file.listed_users:
+            return create_error_command(
+                f"User {user_id} does not have access to this file"
+            ).to_json()
+
+        # Remove the user's access to the file
+        file.remove_user(user_id)
+
+        # Remove all permissions for this user on this file
+        self.acess_control.remove_permission(user_id, file_id, Permission.READ)
+        self.acess_control.remove_permission(user_id, file_id, Permission.WRITE)
+
+        # Check if the user has the file in their list and remove it
+        if user_id in self.users:
+            self.users[user_id].remove_file(file_id)
+
+        return create_revoke_response_command(
+            f"User {user_id} revoked from file {file_id} successfully"
+        ).to_json()
+
 
 def write_file(file_path: str, data: str) -> None:
     """

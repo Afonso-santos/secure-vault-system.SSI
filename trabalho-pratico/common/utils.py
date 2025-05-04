@@ -125,6 +125,7 @@ def decrypt_key(encrypted_key: bytes, rsa_key) -> bytes:
     )
     return plaintext
 
+
 def dict_to_json(data: dict) -> str:
     """Convert a dictionary to a JSON string"""
     return json.dumps(data)

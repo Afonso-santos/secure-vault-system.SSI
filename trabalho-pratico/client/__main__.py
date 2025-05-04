@@ -24,7 +24,7 @@ from handlers import (
     handler_replace_command,
     handler_share_command,
     handler_group_add_file_command,
-    handler_group_add_user_command
+    handler_group_add_user_command,
 )
 from common.Icarus_Protocol import (
     Packet,
@@ -407,15 +407,13 @@ class Client:
                             )
                         elif self.target == "ca":
                             self.target = "server"
-                           
+
                             comando = Command.from_json(packet.payload.get("command"))
                             if comando.type == CMD_TYPES.G_ADD:
 
                                 id_things = packet.payload.get("id")
                                 group_id = comando.payload.get("group_id")
                                 file_path = comando.payload.get("file_path")
-
-
 
                                 message_cmd = handler_group_add_file_command(
                                     self, group_id, file_path, id_things
@@ -434,7 +432,9 @@ class Client:
                                 )
                             elif comando.type == CMD_TYPES.G_ADD_USER:
                                 if self.target == "server":
-                                    message_cmd = process_group_add_user_partII(packet.payload)
+                                    message_cmd = process_group_add_user_partII(
+                                        packet.payload
+                                    )
 
                                     encrypted_data, iv, auth_tag = encrypt_data(
                                         message_cmd.encode(),
@@ -443,7 +443,9 @@ class Client:
                                     self.target = "ca"
                                     return (
                                         "ca",
-                                        create_data_exchange(encrypted_data, iv, auth_tag)
+                                        create_data_exchange(
+                                            encrypted_data, iv, auth_tag
+                                        )
                                         .to_json()
                                         .encode(),
                                     )
@@ -550,14 +552,19 @@ class Client:
 
                                 case CMD_TYPES.G_ADD_USER:
                                     print("🔒 Received G_ADD_USER command")
-                                    
+
                                     group_id = command.payload.get("group_id")
                                     user_id = command.payload.get("user_id")
                                     permissions = command.payload.get("permissions")
                                     dict_key = command.payload.get("dict_key")
 
                                     command_data = handler_group_add_user_command(
-                                        self, group_id, user_id, permissions, dict_key, key
+                                        self,
+                                        group_id,
+                                        user_id,
+                                        permissions,
+                                        dict_key,
+                                        key,
                                     )
 
                                     encrypted_data, iv, auth_tag = encrypt_data(

@@ -301,8 +301,6 @@ class Server:
                         comando = Command.from_json(
                             decrypted_data.decode("utf-8")
                         )  # Convert to Command object
-                        print(f"comando: {comando}")
-
                         match comando.type:
                             case CMD_TYPES.GET:
                                 return self.process(decrypted_data, client_id)
@@ -383,7 +381,6 @@ class Server:
                                 file = self.file_system.files.get(file_id)
                                 key = file.listed_users.get(client_state["name"])
                                 things_dict[file_id] = key
-
 
                             if len(things_dict) == 0:
                                 data = self.file_system.proccess_cmd(

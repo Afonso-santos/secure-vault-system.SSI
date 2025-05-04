@@ -173,7 +173,6 @@ def handler_share_command(
 
     file_key = base64.b64decode(file_key)
 
-
     file_key = client.private_key.decrypt(
         file_key,
         padding.OAEP(
@@ -196,7 +195,7 @@ def handler_share_command(
 
 
 def handler_group_add_user_command(
-    client, group_id: str, user_id: str, permissions: str,dict_keys: str, key
+    client, group_id: str, user_id: str, permissions: str, dict_keys: str, key
 ):
     """
     Create a command to add a user to a group.
@@ -204,25 +203,17 @@ def handler_group_add_user_command(
 
     dict_keys = json_to_dict(dict_keys)
 
-    for file_id ,file_key in dict_keys.items():
+    for file_id, file_key in dict_keys.items():
 
         encrypted_file_key = base64.b64decode(file_key)
         # Decrypt the file key with the client's private key
-        file_key_decrypt = decrypt_key(
-            encrypted_file_key,
-            client.private_key
-        )
+        file_key_decrypt = decrypt_key(encrypted_file_key, client.private_key)
 
         # Encrypt the file key with the user's public key
 
-        file_key_encrypted = encrypt_key(
-            file_key_decrypt,
-            key.encode()
-        )
-
+        file_key_encrypted = encrypt_key(file_key_decrypt, key.encode())
 
         dict_keys[file_id] = base64.b64encode(file_key_encrypted).decode()
-
 
     dict_keys_json = dict_to_json(dict_keys)
 
@@ -288,7 +279,9 @@ def create_group_add_file(group_id: str, file_path: str) -> Command:
     return create_command(CMD_TYPES.G_ADD, payload)
 
 
-def create_group_add_user(group_id: str, user_id: str, permissions: str, dict_key:str =None) -> Command:
+def create_group_add_user(
+    group_id: str, user_id: str, permissions: str, dict_key: str = None
+) -> Command:
     """
     Create a command to add a user to a group.
     """
@@ -301,10 +294,22 @@ def create_group_add_user(group_id: str, user_id: str, permissions: str, dict_ke
     return create_command(CMD_TYPES.G_ADD_USER, payload)
 
 
-def handler_group_delete_user_command(
-    group_id: str, user_id: str
-):
+def handler_group_delete_user_command(group_id: str, user_id: str):
     """
     Create a command to delete a user from a group.
     """
     return create_group_delete_user_command(group_id, user_id)
+
+
+def handler_delete_command(file_id: str):
+    """
+    Create a command to delete a file.
+    """
+    return create_delete_command(file_id)
+
+
+def handler_revoke_command(file_id: str, user_id: str):
+    """
+    Create a command to revoke a file.
+    """
+    return create_revoke_command(file_id, user_id)

@@ -115,6 +115,15 @@ def pprint_group_delete(payload: dict) -> None:
     print("------------------------------")
 
 
+def pprint_delete_file(payload: dict) -> None:
+    """
+    Pretty print the delete file command response
+    """
+    print("📄 File deleted successfully")
+    print(f"📄 {payload['msg']}")
+    print("------------------------------")
+
+
 def pprint_group_add_user(payload: dict) -> None:
     """
     Pretty print the group add user command response
@@ -139,4 +148,13 @@ def pprint_group_add_file(payload: dict) -> None:
     """
     print("👥 📄 File added to group successfully")
     print(f"File ID: {payload['file_id']}")
+    print("------------------------------")
+
+
+def pprint_revoke_file(payload: dict) -> None:
+    """
+    Pretty print the revoke file command response
+    """
+    print("📄 File revoked successfully")
+    print(f"File ID: {payload['msg']}")
     print("------------------------------")

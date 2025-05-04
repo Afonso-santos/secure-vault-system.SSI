@@ -28,7 +28,11 @@ $ python certificate_authority create -s 1 -c 3 -o certificates
 ```
 $ python server certificates/VAULT_SERVER.p12 
 ```
-3. Finally, run the client, which connects first to the CA and then to the server
+3. Then, run the certificate authority server:
+```
+$ python certificate_authority run -d certificates
+```
+4. Finally, run the client, which connects first to the CA and then to the server
 ```
 $ python client certificates/VAULT_CLI1.p12   
 ```

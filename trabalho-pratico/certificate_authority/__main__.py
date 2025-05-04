@@ -308,12 +308,10 @@ class CertificateAuthority:
                         print(f"Key not found for id: {id_thing}")
                         return create_error().to_json().encode()
                 case PacketType.MULTI_GET:
-                    
 
                     id_things = message.payload["id"]
 
                     id_things = json_to_dict(id_things)
-
 
                     for id_thing, key in id_things.items():
                         key = self.key_catalog.get(id_thing)
