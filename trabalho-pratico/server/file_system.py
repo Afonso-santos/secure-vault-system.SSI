@@ -22,6 +22,7 @@ from common.commands_utils import (
     create_share_response_command,
     create_group_add_user_response_command,
     create_group_add_file_response_command,
+    create_group_list_response_command,
 )
 
 from common.utils import dict_to_json, json_to_dict
@@ -315,6 +316,10 @@ class FileSystem:
                     return self.share_file(cmd.payload, client_id)
                 case CMD_TYPES.G_ADD_USER:
                     return self.add_user_to_group(cmd.payload, client_id)
+                
+                case CMD_TYPES.G_LIST:
+                    print("Listing group")
+                    return self.list_groups(cmd.payload, client_id)
 
                 case CMD_TYPES.G_ADD:
 
@@ -343,26 +348,6 @@ class FileSystem:
                 case CMD_TYPES.DELETE:
                     print("Deleting file")
                     return self.delete_file(cmd.payload, client_id)
-                # case CMD_TYPES.LIST:
-                #     return self.list_files(client_id)
-                # case CMD_TYPES.REPLACE:
-                #     return self.replace_file(decrypt_data.payload, client_id)
-                # case CMD_TYPES.DETAILS:
-                #     return self.file_details(decrypt_data.payload, client_id)
-                # case CMD_TYPES.G_CREATE:
-                #     return self.create_group(decrypt_data.payload, client_id)
-                # case CMD_TYPES.G_DELETE:
-                #     return self.delete_group(decrypt_data.payload, client_id)
-                # case CMD_TYPES.G_ADD_USER:
-                #     return self.add_user_to_group(decrypt_data.payload, client_id)
-                # case CMD_TYPES.G_DELETE_USER:
-                #     return self.remove_user_from_group(decrypt_data.payload, client_id)
-                # case CMD_TYPES.G_LIST:
-                #     return self.list_groups(client_id)
-                # case CMD_TYPES.G_ADD:
-                #     return self.add_file_to_group(decrypt_data.payload, client_id)
-                # case CMD_TYPES.READ:
-                #     return self.read_file(decrypt_data.payload, client_id)
                 case _:
                     raise ValueError("Unknown command type")
         except Exception as e:
@@ -750,6 +735,30 @@ class FileSystem:
             f"User {user_id} removed from group {group_id} successfully"
         ).to_json()
 
+    def list_groups(self, payload, client_id: str) -> dict:
+            """
+            List all groups the user is a member of, including their permissions for each group.
+            """
+            user = self.users.get(client_id)
+            if not user:
+                return create_error_command("User not found").to_json()
+
+            groups_dict = {}
+            for group_id, group in self.groups.items():
+                if client_id in group.members:
+                    # Get user's permissions for this group
+                    permissions = [p.value for p in group.get_member_permissions(client_id)]
+                    is_owner = group.owner_id == client_id
+
+                    groups_dict[group_id] = {
+                        "group_name": group.group_name,
+                        "permissions": permissions,
+                        "is_owner": is_owner
+                    }
+
+            groups_dict= dict_to_json(groups_dict)
+
+            return create_group_list_response_command(groups_dict).to_json()
     def delete_file(self, payload, client_id: str) -> dict:
         """
         Delete a file from the file system.
@@ -861,12 +870,14 @@ class FileSystem:
             file.remove_user(client_id)
 
             # Remove from user's list of files
-            self.users[client_id].remove_file(file_id)
+            if client_id in self.users:
+                self.users[client_id].remove_file(file_id)
 
             return create_delete_response_command(
                 f"Access to file {file_id} removed successfully"
             ).to_json()
 
+        # If we reach here, the user doesn't have any permissions to the file
         return create_error_command("Permission denied").to_json()
 
     def revoke_user(self, payload, client_id: str) -> dict:

@@ -255,6 +255,17 @@ def create_group_delete_user_command(group_id: str, user_id: str) -> Command:
     }
     return create_command(CMD_TYPES.G_DELETE_USER, payload)
 
+def create_group_list_command() -> Command:
+    """Create a command to list the files in a group."""
+    payload = {}
+    return create_command(CMD_TYPES.G_LIST, payload)
+
+def create_group_list_response_command(dict_groups: str) -> Command:
+    """Create a command to respond to a group list request."""
+    payload = {
+        "dict_groups": dict_groups,
+    }
+    return create_command(CMD_TYPES.G_LIST, payload)
 
 def create_delete_command(file_id: str) -> Command:
     """Create a command to delete a file."""

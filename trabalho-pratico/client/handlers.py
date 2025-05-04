@@ -300,6 +300,11 @@ def handler_group_delete_user_command(group_id: str, user_id: str):
     """
     return create_group_delete_user_command(group_id, user_id)
 
+def handler_group_list_command():
+    """
+    Create a command to list all groups.
+    """
+    return create_group_list_command()
 
 def handler_delete_command(file_id: str):
     """

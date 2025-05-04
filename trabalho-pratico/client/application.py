@@ -23,6 +23,7 @@ from pprint import (
     pprint_share,
     pprint_group_add_user,
     pprint_group_add_file,
+    pprint_group_list,
     pprint_revoke_file,
     pprint_delete_file,
 )
@@ -41,6 +42,7 @@ from handlers import (
     handler_group_add_user_command,
     handler_group_add_file_command,
     handler_group_delete_user_command,
+    handler_group_list_command,
     handler_revoke_command,
 )
 
@@ -205,7 +207,8 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
 
                 pass
             case "group list":
-                pass
+                # group list
+                command_data = handler_group_list_command()
 
             case "group add":
                 # group add <group-id> <file-path>
@@ -281,6 +284,9 @@ def process_response(client, response: str, key=None) -> None:
         case CMD_TYPES.G_ADD:
             print("........................................")
             pprint_group_add_file(response.payload)
+        case CMD_TYPES.G_LIST:
+            print("........................................")
+            pprint_group_list(response.payload)
 
         case CMD_TYPES.DELETE:
             print("........................................")

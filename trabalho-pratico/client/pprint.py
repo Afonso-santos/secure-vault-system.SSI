@@ -6,7 +6,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from common.utils import verify_signature, decrypt_file
+from common.utils import verify_signature, decrypt_file, json_to_dict
 
 
 def pprint_add(payload: dict) -> None:
@@ -150,6 +150,19 @@ def pprint_group_add_file(payload: dict) -> None:
     print(f"File ID: {payload['file_id']}")
     print("------------------------------")
 
+def pprint_group_list(payload: dict) -> None:
+    """
+    Pretty print the group list command response
+    """
+    dict_groups = payload["dict_groups"]
+    dict_groups = json_to_dict(dict_groups)
+
+    print("👥 Group list:")
+    for group_id, group_info in dict_groups.items():
+        print(f"📁 Group ID: {group_id}")
+        print(f"   📌 Name       : {group_info.get('group_name', 'N/A')}")
+        print(f"   🛡️ Permissions: {', '.join(group_info.get('permissions', []))}")
+        print(f"   👑 Is Owner   : {group_info.get('is_owner', False)}\n")
 
 def pprint_revoke_file(payload: dict) -> None:
     """
