@@ -427,8 +427,9 @@ class FileSystem:
 
         file = self.files[file_id]
 
-        # Check if client has read permission
-        if not self.acess_control.check_permission(client_id, file_id, Permission.READ):
+        # Check if client has read permission (either directly or through a group)
+        has_permission = self.acess_control.has_permission(client_id, file_id, Permission.READ)
+        if not has_permission:
             return create_error_command("Permission denied").to_json()
 
         return create_details_response_command(
@@ -447,13 +448,14 @@ class FileSystem:
         """
         print("payload: ", payload)
         file_id = payload["file_id"]
-
         if file_id not in self.files:
             return create_error_command("File not found").to_json()
 
-        if not self.acess_control.check_permission(
+
+        has_permission = self.acess_control.has_permission(
             client_id, file_id, Permission.WRITE
-        ):
+        )
+        if not has_permission:
             return create_error_command("Permission denied").to_json()
 
         file = self.files[file_id]

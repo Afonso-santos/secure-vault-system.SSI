@@ -13,6 +13,7 @@ def pprint_add(payload: dict) -> None:
     """
     Pretty print the add command response
     """
+    print("------------------------------")
     print("📄 File added successfully")
     print(f"File ID: {payload['file_id']}")
     print("------------------------------")
@@ -31,6 +32,7 @@ def pprint_details(payload: dict) -> None:
     """
     Pretty print the details command response
     """
+    print("------------------------------")
     print("🖊️ File details:")
     print(f"File ID: {payload['file_id']}")
     print(f"File name: {payload['file_name']}")
@@ -53,7 +55,7 @@ def pprint_read(client, payload: dict, public_key) -> None:
     signature = base64.b64decode(payload["signature"])
     ciphertext = base64.b64decode(payload["content"])
 
-    print(f"🔑 Received encrypted file data")
+
 
     # Decrypt the AES key using client's private key
     key = client.private_key.decrypt(
@@ -92,7 +94,7 @@ def pprint_read(client, payload: dict, public_key) -> None:
     # Try to decode as UTF-8, but handle binary data gracefully
 
     decoded_content = plaintext.decode()
-    print("📄 File content:")
+    print("\n📄 File content:")
     print(decoded_content)
 
     print("------------------------------")
@@ -102,7 +104,7 @@ def pprint_replace(msg: str) -> None:
     """
     Pretty print the replace command response
     """
-    print("📄" + msg)
+    print("\n📄" + msg)
     print("------------------------------")
 
 
@@ -110,7 +112,7 @@ def pprint_group_delete(payload: dict) -> None:
     """
     Pretty print the group delete command response
     """
-    print("👥 Group deleted successfully")
+    print("\n👥 Group deleted successfully")
     print(f"👥 {payload['msg']}")
     print("------------------------------")
 
@@ -119,7 +121,7 @@ def pprint_delete_file(payload: dict) -> None:
     """
     Pretty print the delete file command response
     """
-    print("📄 File deleted successfully")
+    print("\n📄 File deleted successfully")
     print(f"📄 {payload['msg']}")
     print("------------------------------")
 
@@ -128,7 +130,7 @@ def pprint_group_add_user(payload: dict) -> None:
     """
     Pretty print the group add user command response
     """
-    print("👥 User added to group successfully")
+    print("\n👥 User added to group successfully")
     print(f"👥 {payload['msg']}")
     print("------------------------------")
 
@@ -137,7 +139,7 @@ def pprint_share(payload: dict) -> None:
     """
     Pretty print the share command response
     """
-    print("📄 File shared successfully")
+    print("\n📄 File shared successfully")
     print(f"Permissions: {payload['msg']}")
     print("------------------------------")
 
@@ -146,7 +148,7 @@ def pprint_group_add_file(payload: dict) -> None:
     """
     Pretty print the group add file command response
     """
-    print("👥 📄 File added to group successfully")
+    print("\n👥 📄 File added to group successfully")
     print(f"File ID: {payload['file_id']}")
     print("------------------------------")
 
@@ -158,7 +160,7 @@ def pprint_group_list(payload: dict) -> None:
     dict_groups = payload["dict_groups"]
     dict_groups = json_to_dict(dict_groups)
 
-    print("👥 Group list:")
+    print("\n👥 Group list:")
     for group_id, group_info in dict_groups.items():
         print(f"📁 Group ID: {group_id}")
         print(f"   📌 Name       : {group_info.get('group_name', 'N/A')}")
@@ -170,7 +172,7 @@ def pprint_revoke_file(payload: dict) -> None:
     """
     Pretty print the revoke file command response
     """
-    print("📄 File revoked successfully")
+    print("\n📄 File revoked successfully")
     print(f"File ID: {payload['msg']}")
     print("------------------------------")
 
@@ -179,7 +181,7 @@ def pprint_list(payload: dict) -> None:
     """
     Pretty print the list command response
     """
-    print("📄 File list:")
+    print("\n📄 File list:")
 
     dict_files = payload["dict_files"]
     dict_files = json_to_dict(dict_files)

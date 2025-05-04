@@ -281,7 +281,6 @@ class Client:
                 elif target == "server":
                     self.handshake_with_server_complete = True
                     self.handshake_complete = True
-                    print("🔒 Secure channel established!")
                     return None, b""
 
             case PacketType.ERROR:
@@ -300,7 +299,6 @@ class Client:
         if message:
             try:
                 packet = Packet.from_json(message.decode())
-                print(f"📥 Received message: {packet}")
 
                 # target = packet.source if hasattr(packet, 'source') else 'server'
 
@@ -320,9 +318,6 @@ class Client:
                             decrypted_data = decrypt_data(
                                 encrypted_data, session_key, iv, auth_tag
                             )
-                            print(
-                                f"🔑 Decrypted data: {decrypted_data.decode('utf-8')}"
-                            )
 
                             try:
                                 comando = Command.from_json(
@@ -339,27 +334,15 @@ class Client:
                                         decrypted_data.decode("utf-8")
                                     )
                                     last_changed = comando.payload.get("last_modified")
-                                    print(f"📄 File content: ")
-                                    print(comando)
-
-                                    print(f"File last modified date: {last_changed}")
-                                    print(
-                                        f"last_changed: {last_changed} .. {self.name}"
-                                    )
+    
                                     if last_changed != self.name:
-                                        print(
-                                            f"-----File last modified date: {last_changed}"
-                                        )
-
-                                        print(
-                                            f".....comando.payload: {comando.payload} -- type: {type(comando.payload)}"
-                                        )
+                                        
 
                                         message = process_get_partII(
                                             comando.payload, last_changed
                                         )
 
-                                        print(f"📄 File content: {message}")
+                                        
 
                                         encrypted_data, iv, auth_tag = encrypt_data(
                                             message.encode(),
@@ -374,7 +357,7 @@ class Client:
                                             .to_json()
                                             .encode(),
                                         )
-                                    print("testing")
+                                    
                                     # return self.target, create_ack().to_json().encode()
 
                                 process_response(
@@ -453,7 +436,7 @@ class Client:
                                     print("receive message of ca")
 
                     case PacketType.ACK:
-                        print("✅ Received ACK")
+                        
                         return None, b""
 
                     case PacketType.GET:
@@ -538,20 +521,14 @@ class Client:
                                         )
 
                                 case CMD_TYPES.READ:
-                                    print("🔒 Received READ command")
-
-                                    print(
-                                        f"📄 File content: {command.payload} -- {type(command.payload)}"
-                                    )
+                                    
                                     output = command.to_json()
-                                    print(
-                                        f"📄 File content: {output} -- {type(output)}"
-                                    )
+                                    
 
                                     process_response(self, output, key)
 
                                 case CMD_TYPES.G_ADD_USER:
-                                    print("🔒 Received G_ADD_USER command")
+                                    
 
                                     group_id = command.payload.get("group_id")
                                     user_id = command.payload.get("user_id")
@@ -677,8 +654,6 @@ async def tcp_sender_dual_server(path_to_client_cert: str):
             else:
                 if client.handshake_complete:
                     # Application phase - get user input
-                    print("🔒 Secure session established. You can send commands.")
-
                     # Wait for user input or server message
                     target, message = client.process_message()
 
