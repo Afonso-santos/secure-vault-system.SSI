@@ -300,11 +300,13 @@ def handler_group_delete_user_command(group_id: str, user_id: str):
     """
     return create_group_delete_user_command(group_id, user_id)
 
+
 def handler_group_list_command():
     """
     Create a command to list all groups.
     """
     return create_group_list_command()
+
 
 def handler_delete_command(file_id: str):
     """
@@ -318,3 +320,10 @@ def handler_revoke_command(file_id: str, user_id: str):
     Create a command to revoke a file.
     """
     return create_revoke_command(file_id, user_id)
+
+
+def handler_list_command(flag: str = None, id_thing: str = None):
+    """
+    Create a command to list all files.
+    """
+    return create_list_command(flag, id_thing)

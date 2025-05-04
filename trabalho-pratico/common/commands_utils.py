@@ -292,3 +292,19 @@ def create_revoke_response_command(msg: str) -> Command:
     """Create a command to respond to a revoke file request."""
     payload = {"msg": msg}
     return create_command(CMD_TYPES.REVOKE, payload)
+
+
+def create_list_command(flag:str ,id_thing: str) -> Command:
+    """Create a command to list all files."""
+    payload = {
+        "flag": flag,
+        "id_thing": id_thing
+    }
+    return create_command(CMD_TYPES.LIST, payload)
+    
+def create_list_response_command(dict_files: str) -> Command:
+    """Create a command to respond to a list files request."""
+    payload = {
+        "dict_files": dict_files,
+    }
+    return create_command(CMD_TYPES.LIST, payload)

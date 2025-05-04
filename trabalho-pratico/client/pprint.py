@@ -150,6 +150,7 @@ def pprint_group_add_file(payload: dict) -> None:
     print(f"File ID: {payload['file_id']}")
     print("------------------------------")
 
+
 def pprint_group_list(payload: dict) -> None:
     """
     Pretty print the group list command response
@@ -164,6 +165,7 @@ def pprint_group_list(payload: dict) -> None:
         print(f"   🛡️ Permissions: {', '.join(group_info.get('permissions', []))}")
         print(f"   👑 Is Owner   : {group_info.get('is_owner', False)}\n")
 
+
 def pprint_revoke_file(payload: dict) -> None:
     """
     Pretty print the revoke file command response
@@ -171,3 +173,22 @@ def pprint_revoke_file(payload: dict) -> None:
     print("📄 File revoked successfully")
     print(f"File ID: {payload['msg']}")
     print("------------------------------")
+
+
+def pprint_list(payload: dict) -> None:
+    """
+    Pretty print the list command response
+    """
+    print("📄 File list:")
+
+    dict_files = payload["dict_files"]
+    dict_files = json_to_dict(dict_files)
+
+    for file_id, file_info in dict_files.items():
+        print(f"📁 File ID: {file_id}")
+        print(f"   📌 Name          : {base64.b64decode(file_info.get('name', 'N/A')).decode()}")
+        print(f"   👤 Owner         : {file_info.get('owner', 'N/A')}")
+        print(f"   🕒 Last Modified : {file_info.get('last_modified', 'N/A')}")
+        print(f"   ✍️  Changed By    : {file_info.get('last_changed_by', 'N/A')}")
+        print(f"   🛡️  Permissions   : {', '.join(file_info.get('permissions', []))}")
+        print(f"   🔄 Shared        : {file_info.get('shared', False)}\n")

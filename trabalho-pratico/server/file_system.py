@@ -23,6 +23,7 @@ from common.commands_utils import (
     create_group_add_user_response_command,
     create_group_add_file_response_command,
     create_group_list_response_command,
+    create_list_response_command
 )
 
 from common.utils import dict_to_json, json_to_dict
@@ -348,6 +349,10 @@ class FileSystem:
                 case CMD_TYPES.DELETE:
                     print("Deleting file")
                     return self.delete_file(cmd.payload, client_id)
+
+                case CMD_TYPES.LIST:
+                    print("Listing files")
+                    return self.list_files(cmd.payload, client_id)
                 case _:
                     raise ValueError("Unknown command type")
         except Exception as e:
@@ -923,6 +928,112 @@ class FileSystem:
         return create_revoke_response_command(
             f"User {user_id} revoked from file {file_id} successfully"
         ).to_json()
+
+    def list_files(self, payload, client_id: str) -> dict:
+        """
+        List files according to specified criteria:
+        - list (no options): All files the user has access to (personal, shared, and group files)
+        - list -u user_id: Files shared with the specified user
+        - list -g group_id: Files belonging to a specific group (if client is a member)
+        """
+        flag = payload.get("flag")
+        id_thing = payload.get("id_thing")
+        
+        files_info = {}
+        
+        # Case 1: No options - list all files accessible to the client
+        if flag is None:
+            # Personal and directly shared files
+            if client_id in self.acess_control.permissions:
+                for file_id, permissions in self.acess_control.permissions.get(client_id, {}).items():
+                    if file_id in self.files:
+                        file = self.files[file_id]
+                        files_info[file_id] = {
+                            "name": file.file_name,
+                            "owner": file.owner_id,
+                            "last_modified": file.modified_at,
+                            "last_changed_by": file.last_changed,
+                            "permissions": [p.value for p in permissions],
+                            "shared": len(file.listed_users) > 1
+                        }
+            
+            # Files accessible through groups
+            for group_id, group in self.groups.items():
+                if client_id in group.members:
+                    for file_id in group.list_of_files:
+                        if file_id in self.files and file_id not in files_info:
+                            file = self.files[file_id]
+                            permissions = []
+                            if group_id in self.acess_control.group_acl and client_id in self.acess_control.group_acl[group_id]:
+                                if file_id in self.acess_control.group_acl[group_id][client_id]:
+                                    permissions = [p.value for p in self.acess_control.group_acl[group_id][client_id][file_id]]
+                            
+                            files_info[file_id] = {
+                                "name": file.file_name,
+                                "owner": file.owner_id,
+                                "last_modified": file.modified_at,
+                                "last_changed_by": file.last_changed,
+                                "permissions": permissions,
+                                "group": group.group_name,
+                                "shared": True
+                            }
+
+        # Case 2: List files shared with a specific user
+        elif flag == "user":
+            user_id = id_thing
+            if user_id not in self.users:
+                return create_error_command("User not found").to_json()
+
+            # List files that are shared between the client and the specified user
+            for file_id, file in self.files.items():
+            # Check if the file is shared between these two users (either direction)
+                if client_id in file.listed_users and user_id in file.listed_users:
+                    # Client is either the owner or has been shared the file
+                    if file.owner_id == client_id or file.owner_id == user_id:
+                    # Get client's permissions for this file (not the target user's)
+                        permissions = [p.value for p in self.acess_control.get_permissions(client_id, file_id)]
+                        files_info[file_id] = {
+                            "name": file.file_name,
+                            "owner": file.owner_id,
+                            "last_modified": file.modified_at,
+                            "last_changed_by": file.last_changed,
+                            "permissions": permissions,
+                            "shared": True
+                        }
+
+        # Case 3: List files belonging to a specific group
+        elif flag == "group":
+            group_id = id_thing
+            if group_id not in self.groups:
+                return create_error_command("Group not found").to_json()
+            
+            group = self.groups[group_id]
+            
+            # Check if the user is a member of the group
+            if client_id not in group.members:
+                return create_error_command("You are not a member of this group").to_json()
+            
+            # List all files in the group
+            for file_id in group.list_of_files:
+                if file_id in self.files:
+                    file = self.files[file_id]
+                    permissions = []
+                    if group_id in self.acess_control.group_acl and client_id in self.acess_control.group_acl[group_id]:
+                        if file_id in self.acess_control.group_acl[group_id][client_id]:
+                            permissions = [p.value for p in self.acess_control.group_acl[group_id][client_id][file_id]]
+                    
+                    files_info[file_id] = {
+                        "name": file.file_name,
+                        "owner": file.owner_id,
+                        "last_modified": file.modified_at,
+                        "last_changed_by": file.last_changed,
+                        "permissions": permissions,
+                        "shared": True
+                    }
+        
+        file_info_json = dict_to_json(files_info)
+        return create_list_response_command(file_info_json).to_json()
+
 
 
 def write_file(file_path: str, data: str) -> None:

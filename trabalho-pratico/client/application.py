@@ -26,6 +26,7 @@ from pprint import (
     pprint_group_list,
     pprint_revoke_file,
     pprint_delete_file,
+    pprint_list,
 )
 from common.commands_utils import Command, CMD_TYPES, create_read_response_command
 from handlers import (
@@ -44,6 +45,7 @@ from handlers import (
     handler_group_delete_user_command,
     handler_group_list_command,
     handler_revoke_command,
+    handler_list_command,
 )
 
 
@@ -70,18 +72,19 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
         match command.lower():
             case "add":
                 if len(args) != 1:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
 
                 print(f"Adding file: {args[0]}")
                 file_path = args[0]
                 # Check if the file exists
                 if not os.path.exists(file_path):
                     print(f"File {file_path} does not exist.")
-                    return 0
+                    return client.process(message="")
                 # Check if the file is a valid file
                 if not os.path.isfile(file_path):
                     print(f"{file_path} is not a valid file.")
-                    return 0
+                    return client.process(message="")
 
                 command_data = handler_add_command(client, file_path)
                 # Create a proper packet for transmission
@@ -89,47 +92,64 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
             case "update":
                 pass
             case "list":
-                pass
+                # list [-u user-id | -g group-id]
+                if len(args) == 0:
+                    command_data = handler_list_command()
+                elif len(args) == 2:
+                    if args[0] == "-u":
+                        # list -u <user-id>
+                        user_id = args[1]
+                        command_data = handler_list_command("user", user_id)
+                    elif args[0] == "-g":
+                        # list -g <group-id>
+                        group_id = args[1]
+                        command_data = handler_list_command("group", group_id)
+                    else:
+                        print("Invalid arguments")
+                        return client.process(message="")
+
             case "share":
                 # share <file-id> <user-id> <permission>
 
                 if len(args) != 3:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
                 file_id = args[0]
                 user_id = args[1]
                 permission = args[2]
 
                 if permission not in ["read", "write", "w", "r"]:
                     print(f"Permission {permission} is not valid.")
-                    return 0
+                    return client.process(message="")
 
                 command_data = create_share(file_id, user_id, permission)
                 command_data = Command.to_json(command_data)
 
                 command_data = create_get(file_id, command_data)
 
-                pass
             case "delete":
                 # delete <file-id>
                 if len(args) != 1:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
                 file_id = args[0]
                 command_data = handler_delete_command(file_id)
 
             case "replace":
 
                 if len(args) != 2:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
                 file_id = args[0]
                 file_path = args[1]
                 # Check if the file exists
                 if not os.path.exists(file_path):
                     print(f"File {file_path} does not exist.")
-                    return 0
+                    return client.process(message="")
                 # Check if the file is a valid file
                 if not os.path.isfile(file_path):
                     print(f"{file_path} is not a valid file.")
-                    return 0
+                    return client.process(message="")
 
                 command_data = create_replace(file_id, file_path)
 
@@ -140,7 +160,8 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
             case "details":
 
                 if len(args) != 1:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
 
                 file_id = args[0]
 
@@ -149,7 +170,8 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
             case "revoke":
                 # revoke <file-id> <user-id>
                 if len(args) != 2:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
                 file_id = args[0]
                 user_id = args[1]
 
@@ -157,7 +179,8 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
 
             case "read":
                 if len(args) != 1:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
 
                 file_id = args[0]
 
@@ -166,14 +189,16 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
             case "group create":
 
                 if len(args) != 1:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
                 print(f"Creating group: {args[0]}")
                 group_name = args[0]
 
                 command_data = handler_group_create_command(group_name)
             case "group delete":
                 if len(args) != 1:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
 
                 print(f"Deleting group: {args[0]}")
                 group_id = args[0]
@@ -183,14 +208,15 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
             case "group add-user":
                 # group add-user <group-id> <user-id> <permissions>
                 if len(args) != 3:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
                 group_id = args[0]
                 user_id = args[1]
                 permission = args[2]
 
                 if permission not in ["read", "write", "w", "r"]:
                     print(f"Permission {permission} is not valid.")
-                    return 0
+                    return client.process(message="")
 
                 command_data = create_group_add_user(group_id, user_id, permission)
                 command_data = Command.to_json(command_data)
@@ -199,7 +225,8 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
             case "group delete-user":
                 # group delete-user <group-id> <user-id>
                 if len(args) != 2:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
                 group_id = args[0]
                 user_id = args[1]
 
@@ -213,17 +240,18 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
             case "group add":
                 # group add <group-id> <file-path>
                 if len(args) != 2:
-                    return 0
+                    print("Invalid number of arguments")
+                    return client.process(message="")
                 group_id = args[0]
                 file_path = args[1]
                 # Check if the file exists
                 if not os.path.exists(file_path):
                     print(f"File {file_path} does not exist.")
-                    return 0
+                    return client.process(message="")
                 # Check if the file is a valid file
                 if not os.path.isfile(file_path):
                     print(f"{file_path} is not a valid file.")
-                    return 0
+                    return client.process(message="")
 
                 command_data = create_group_add_file(group_id, file_path)
 
@@ -231,11 +259,6 @@ def process_cmd(client, c_input: str) -> Dict[str, Any]:
 
                 command_data = create_multi_get(group_id, command_data)
 
-            case "exit":
-                pass
-
-            case "get":
-                pass
             case _:
                 return client.process(message="")
 
@@ -295,6 +318,11 @@ def process_response(client, response: str, key=None) -> None:
         case CMD_TYPES.REVOKE:
             print("........................................")
             pprint_revoke_file(response.payload)
+
+        case CMD_TYPES.LIST:
+            print("........................................")
+            pprint_list(response.payload)
+
         case _:
             print("Unknown response type")
 
